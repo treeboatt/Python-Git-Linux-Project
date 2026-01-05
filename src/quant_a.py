@@ -36,10 +36,10 @@ class QuantAAnalyzer:
         
         # Sharpe Ratio
         annual_factor = np.sqrt(252 * 78)
-        if returns.std() == 0:
+        if returns.std(ddof=0) == 0:
             sharpe = 0.0
         else:
-            sharpe = (returns.mean() / returns.std()) * annual_factor
+            sharpe = (returns.mean() / returns.std(ddof=0)) * annual_factor
             
         return {
             "Max Drawdown": round(max_drawdown, 4),
