@@ -72,7 +72,7 @@ def _clean_timeseries(df: pd.DataFrame) -> pd.DataFrame:
     out = out.sort_index()
     out = out[~out.index.duplicated(keep="last")]
     # garder seulement colonnes utiles si elles existent
-    for col in ["Close", "SMA_Short", "SMA_Long"]:
+    for col in ["Close", "SMA_Short", "SMA_Long", "Equity_Curve"]:
         if col in out.columns:
             out[col] = pd.to_numeric(out[col], errors="coerce")
     out = out.dropna(subset=["Close"])
@@ -92,12 +92,14 @@ def format_signal(last_row: pd.Series):
 def plot_quant_a(df: pd.DataFrame, ticker: str) -> go.Figure:
     fig = go.Figure()
 
+    # Prix de cloture
     fig.add_trace(go.Scatter(
         x=df.index, y=df["Close"],
         name="Close", mode="lines",
         connectgaps=False
     ))
 
+    # Moyenne Mobile Courte
     if "SMA_Short" in df.columns:
         fig.add_trace(go.Scatter(
             x=df.index, y=df["SMA_Short"],
@@ -105,12 +107,34 @@ def plot_quant_a(df: pd.DataFrame, ticker: str) -> go.Figure:
             connectgaps=False
         ))
 
+    # Moyenne Mobile Longue
     if "SMA_Long" in df.columns:
         fig.add_trace(go.Scatter(
             x=df.index, y=df["SMA_Long"],
             name="SMA long", mode="lines",
             connectgaps=False
         ))
+    
+    # --- AJOUT BONUS : EQUITY CURVE (Ligne Jaune) ---
+    if "Equity_Curve" in df.columns:
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df["Equity_Curve"],
+            name="Strategy Value (Base 100)",
+            mode="lines",
+            line=dict(color='yellow', width=2, dash='dot'),
+            yaxis="y2"
+        ))
+        
+        # Axe Y secondaire à droite pour la performance
+        fig.update_layout(
+            yaxis2=dict(
+                title="Strategy Equity",
+                overlaying="y",
+                side="right",
+                showgrid=False
+            )
+        )
+    # ------------------------------------------------
 
     fig.update_layout(
         template="plotly_dark",
@@ -206,12 +230,25 @@ if page == "Quant A (single asset)":
                 help="Historical range to download"
             )
 
+        if period in ["1d", "5d"]:
+            valid_intervals = ["1m", "2m", "5m", "15m", "30m", "60m", "1d"]
+            default_index = 2
+        elif period == "1mo":
+            valid_intervals = ["2m", "5m", "15m", "30m", "60m", "1d"]
+            default_index = 1
+        elif period == "3mo":
+            valid_intervals = ["60m", "1d", "5d", "1wk", "1mo"]
+            default_index = 0
+        else:
+            valid_intervals = ["1d", "5d", "1wk", "1mo"]
+            default_index = 0
+        
         with c5:
             interval = st.selectbox(
                 "Interval",
-                ["1m", "2m", "5m", "15m", "30m", "60m", "1d"],
-                index=2,
-                help="Sampling frequency"
+                valid_intervals,
+                index=default_index,
+                help="Sampling frequency (filtered by period availability)"
             )
 
         # Guard rails for SMA windows

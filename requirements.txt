@@ -7,3 +7,4 @@ streamlit-autorefresh
 plotly
 streamlit-option-menu
 streamlit-extras
+pytest

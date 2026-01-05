@@ -11,13 +11,17 @@ class QuantAAnalyzer:
             
         df = self.data.copy()
         
-        # Moyennes mobiles
+        # 1. Moyennes mobiles
         df['SMA_Short'] = df['Close'].rolling(window=short_window).mean()
         df['SMA_Long'] = df['Close'].rolling(window=long_window).mean()
         
-        # Signal d'achat
+        # 2. Signal (1 = Achat, 0 = Neutre)
         df['Signal'] = np.where(df['SMA_Short'] > df['SMA_Long'], 1.0, 0.0)
-        df['Position'] = df['Signal'].diff()
+        
+        # 3. Calcul de la performance (Equity Curve) - BONUS
+        df['Strategy_Return'] = df['Signal'].shift(1) * df['Close'].pct_change()
+        df['Strategy_Return'] = df['Strategy_Return'].fillna(0)
+        df['Equity_Curve'] = (1 + df['Strategy_Return']).cumprod() * 100
         
         self.data = df
         return df
@@ -34,12 +38,11 @@ class QuantAAnalyzer:
         drawdown = (cum_returns - peak) / peak
         max_drawdown = drawdown.min()
         
-        # Sharpe Ratio
-        annual_factor = np.sqrt(252 * 78)
+        # Sharpe Ratio (Annualisé)
         if returns.std(ddof=0) == 0:
             sharpe = 0.0
         else:
-            sharpe = (returns.mean() / returns.std(ddof=0)) * annual_factor
+            sharpe = (returns.mean() / returns.std(ddof=0)) * np.sqrt(252)
             
         return {
             "Max Drawdown": round(max_drawdown, 4),
