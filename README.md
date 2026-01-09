@@ -1,210 +1,202 @@
-# Quantitative Finance Dashboard
 
-Interactive quantitative analysis platform developed for the Python, Git, Linux for Finance course.
+# QUANTITATIVE FINANCE DASHBOARD
 
----
-
-## Overview
-
-This project is a real-time financial dashboard that provides single-asset analysis (Quant A) and multi-asset portfolio optimization (Quant B). The application fetches live data from Yahoo Finance, runs trading strategy backtests, and offers ML-based price predictions.
-
-Designed to run continuously on a Linux VM with automated daily reporting via cron.
+**Authors:** Matthieu HANNA GERGUIS & Maxime GRUEZ
+**Course:** A4-IF3 | Python, Git, Linux for Finance
+**Institution:** ESILV (Ecole Supérieure d'Ingénieurs Léonard de Vinci)
 
 ---
 
-## Project Structure
+## ACCESS THE PLATFORM
 
-```
+**Live Deployment (AWS):** http://13.60.215.60:8501
+**Private/Local Access:** http://localhost:8501
+**Status:** Online - Hosted on Linux VM (AWS EC2)
+
+---
+
+## OVERVIEW
+
+This project is a professional-grade real-time financial dashboard developed to perform advanced quantitative analysis. It combines single-asset technical analysis with multi-asset portfolio optimization strategies.
+
+The application is deployed on a Linux Virtual Machine and features a robust automation architecture using Cron jobs for continuous operation, self-healing (health checks), and automated daily reporting.
+
+**Key Features:**
+- **Quant A:** Single-asset analysis with 8 backtested trading strategies and Machine Learning price predictions.
+- **Quant B:** Portfolio optimization using Modern Portfolio Theory (MPT) and Hierarchical Risk Parity (HRP).
+- **Automation:** Fully automated infrastructure managing data fetching and system stability.
+- **Reporting:** Automatic generation of daily PDF market reports stored locally on the server.
+
+---
+
+## PROJECT STRUCTURE
+
+```text
 project/
 │
-├── app.py                  # Main Streamlit application
-├── requirements.txt        # Python dependencies
+├── app.py                  # Main Streamlit application entry point
+├── requirements.txt        # Python dependencies list
 │
-├── src/
-│   ├── data_loader.py      # Data fetching with caching (5 min TTL)
-│   ├── quant_a.py          # Single asset analysis module
-│   ├── quant_b.py          # Portfolio analysis module
-│   ├── predictions.py      # ML prediction models
-│   └── utils.py            # Shared utilities and metrics
+├── src/                    # Core Logic Modules
+│   ├── data_loader.py      # Data fetching with caching (TTL 5 min)
+│   ├── quant_a.py          # Module: Single Asset Analysis & Strategies
+│   ├── quant_b.py          # Module: Portfolio Optimization & Efficient Frontier
+│   ├── predictions.py      # Module: ML Models (Prophet, Linear Reg, Smoothing)
+│   └── utils.py            # Shared mathematical utilities and metrics
 │
-├── scripts/
-│   ├── daily_report.py     # Automated report generation
-│   └── cron_setup.sh       # Cron job configuration
+├── scripts/                # Infrastructure & Automation
+│   ├── daily_report.py     # Engine for generating PDF reports
+│   ├── run_report.sh       # Shell wrapper for cron execution
+│   └── cron_setup.sh       # Server configuration script (Cron, Timezone)
 │
-├── tests/
-│   └── test_strategies.py  # Unit tests (pytest)
+├── tests/                  # Quality Assurance
+│   └── test_strategies.py  # Unit tests using Pytest
 │
-└── reports/                # Generated reports (TXT, JSON, PDF)
+└── reports/                # Generated Content
+    ├── latest_report.txt   # Raw data summary of the last run
+    └── report_YYYY-MM-DD.pdf # Professional Daily PDF Reports
+
 ```
 
 ---
 
-## Quant A - Single Asset Analysis
+## MODULE DETAILS
 
-Dedicated module for analyzing individual assets (stocks, crypto, forex, indices).
+### 1. Quant A - Single Asset Analysis
 
-**Trading Strategies (8)**
+This module analyzes individual assets (Equity, Crypto, Forex, Indices) using real-time data from Yahoo Finance.
+
+**Trading Strategies Implemented:**
 
 | Strategy | Description |
-|----------|-------------|
-| SMA Crossover | Buy when short MA crosses above long MA |
-| EMA Crossover | Same logic with exponential moving averages |
-| RSI Mean Reversion | Buy oversold (<30), sell overbought (>70) |
-| Bollinger Bands | Buy at lower band, sell at upper band |
-| MACD | Buy when MACD crosses above signal line |
-| Momentum | Buy when recent return exceeds threshold |
-| Mean Reversion | Buy when z-score indicates oversold |
-| Buy & Hold | Benchmark strategy, always invested |
+| --- | --- |
+| SMA Crossover | Buy signal when Short MA crosses above Long MA |
+| EMA Crossover | Exponential variation of the standard MA Crossover |
+| RSI Mean Reversion | Contrarian strategy based on overbought (>70) / oversold (<30) levels |
+| Bollinger Bands | Volatility-based strategy utilizing standard deviation bands |
+| MACD | Trend-following momentum strategy using signal line crossovers |
+| Momentum | Position entry based on Rate of Change (ROC) thresholds |
+| Mean Reversion | Statistical arbitrage strategy based on Z-Score analysis |
+| Buy & Hold | Benchmark strategy for performance comparison |
 
-**Performance Metrics**
+**Performance Metrics:**
+Total Return, Annualized Return, Volatility, Sharpe Ratio, Sortino Ratio, Calmar Ratio, Max Drawdown, VaR (95%), CVaR (95%), Win Rate.
 
-Total return, annualized return, volatility, Sharpe ratio, Sortino ratio, Calmar ratio, maximum drawdown, VaR (95%), CVaR (95%), win rate, profit factor.
+**Machine Learning:**
+Integration of Prophet, Linear Regression, and Exponential Smoothing for trend forecasting with configurable confidence intervals.
 
-**ML Predictions**
+### 2. Quant B - Portfolio Optimization
 
-Prophet, Linear Regression, Momentum-based, Exponential Smoothing — all with configurable confidence intervals.
+This module constructs and analyzes multi-asset portfolios.
 
-**Charts**
-
-Interactive candlestick charts, buy/sell signals, technical indicators, drawdown visualization, returns distribution.
-
----
-
-## Quant B - Portfolio Analysis
-
-Dedicated module for building and analyzing multi-asset portfolios.
-
-**Allocation Methods (7)**
+**Allocation Algorithms:**
 
 | Method | Description |
-|--------|-------------|
-| Equal Weight | 1/n allocation to each asset |
-| Inverse Volatility | Higher weight to less volatile assets |
-| Minimum Variance | Closed-form solution for lowest risk |
+| --- | --- |
+| Equal Weight | Naive diversification (1/N allocation) |
+| Inverse Volatility | Weights inversely proportional to asset risk |
+| Minimum Variance | Mathematical optimization for lowest portfolio volatility |
 | Risk Parity | Equal risk contribution from each asset |
-| Maximum Sharpe | Monte Carlo optimization (5000 simulations) |
-| HRP | Hierarchical Risk Parity using clustering |
-| Custom | User-defined weights |
-
-**Rebalancing Options**
-
-None (drift), daily, weekly, monthly.
-
-**Analysis Tools**
-
-Correlation heatmap, risk contribution breakdown, diversification ratio, efficient frontier visualization.
+| Maximum Sharpe | Monte Carlo optimization (5000 simulations) for max risk-adjusted return |
+| HRP | Hierarchical Risk Parity using clustering algorithms |
 
 ---
 
-## Installation
+## AUTOMATED REPORTING
+
+The project includes a custom reporting engine powered by `fpdf2` and scheduled via Linux Cron.
+
+* **Schedule:** Runs daily at 20:00 (Europe/Paris Time).
+* **Output:** Generates a "Dark Mode" styled PDF containing market summaries, top gainers/losers, and volume analysis.
+* **Storage:** Reports are archived in the `reports/` directory on the VM.
+* **Example:** A sample report is available in this repository as `reports/report_2026-01-09.pdf`.
+
+---
+
+## INSTALLATION & DEPLOYMENT
+
+### Local Development
 
 Requirements: Python 3.10+
 
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone <repository-url>
 cd project
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate
+# 2. Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
 
-# Install dependencies
+# 3. Install dependencies
 pip install -r requirements.txt
-```
 
----
-
-## Running the Application
-
-```bash
-# Activate virtual environment
-source venv/bin/activate
-
-# Start the dashboard
+# 4. Start application
 streamlit run app.py
+
 ```
 
-Access the dashboard at: http://13.60.215.60:8501
-Private Access : [http://localhost:8501](http://localhost:8508/)
+### Server Deployment (Linux/AWS)
 
-For external access (VM deployment):
-
-```bash
-streamlit run app.py --server.port 8501 --server.address 0.0.0.0
-```
-
----
-
-## Cron Setup (Linux VM)
-
-The `cron_setup.sh` script automatically configures scheduled tasks.
+The repository includes a setup script to automate the production environment configuration.
 
 ```bash
+# Give execution permissions
 chmod +x scripts/cron_setup.sh
+
+# Run setup (Configures Cron, Timezone, and Logs)
 ./scripts/cron_setup.sh
+
 ```
 
-This installs:
-- Daily report generation at 8pm
-- Health check every 10 minutes
-- Auto-restart on VM reboot
+**Installed Cron Jobs:**
+
+1. **Daily Reporting:** 20:00 Daily - Triggers PDF generation.
+2. **Health Check:** Every 10 mins - Checks app status and restarts if down.
+3. **Auto-Reboot:** @reboot - Launches application automatically on server start.
 
 ---
 
-## Running Tests
+## TESTING
+
+Unit tests are implemented to validate trading logic and strategy calculations.
 
 ```bash
 pytest tests/ -v
+
 ```
 
 ---
 
-## Key Dependencies
+## COMMANDS REFERENCE
 
-- streamlit - Web interface
-- streamlit-autorefresh - Auto-refresh every 5 minutes
-- streamlit-option-menu - Navigation menu
-- yfinance - Financial data from Yahoo Finance
-- plotly - Interactive charts
-- pandas / numpy - Data manipulation
-- scikit-learn - ML models
-- prophet - Time series forecasting
-- fpdf2 - PDF report generation
-- pytest - Unit testing
-
----
-
-## Commands Reference
+**Application Management**
 
 ```bash
-# Start application
+# Start Dashboard
 streamlit run app.py
 
-# Run tests
-pytest tests/ -v
+# Run in background (Server mode)
+nohup streamlit run app.py --server.port 8501 > logs/app.log 2>&1 &
 
-# Configure cron jobs
-./scripts/cron_setup.sh
+```
 
-# Generate report manually
-python scripts/daily_report.py
+**Logs & Monitoring**
 
-# View application logs
+```bash
+# View App Logs
 tail -f logs/app.log
 
-# View report logs
-tail -f logs/daily_report.log
+# View Cron/System Logs
+grep CRON /var/log/syslog
 
-# Check current crontab
-crontab -l
-
-# Clear data cache (also available in UI)
-# Click "Force Refresh Data" in sidebar
 ```
 
----
+**Manual Operations**
 
-## Authors
+```bash
+# Generate PDF Report manually
+python scripts/daily_report.py
 
-Master Finance — Python, Git, Linux for Finance Project
+# Check Cron configuration
+crontab -l
