@@ -1,5 +1,5 @@
 """
-Quant Terminal Pro - Professional Quantitative Finance Platform
+Onyx Terminal - Your portfolio, Automated
 Main Streamlit Application with Virtual Trading
 """
 
@@ -13,7 +13,7 @@ import pytz
 
 # Page Configuration
 st.set_page_config(
-    page_title="Quant Terminal Pro",
+    page_title="Onyx Terminal",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -69,7 +69,22 @@ def init_session_state():
 # ============================================================
 @st.cache_data(ttl=300, show_spinner=False)
 def get_ticker_html_content():
-    tickers = ["SPY", "QQQ", "DIA", "BTC-USD", "ETH-USD", "NVDA", "TSLA", "AAPL", "MSFT", "AMZN", "GOOGL", "META"]
+    tickers = [
+    '^GSPC',     
+    '^NDX',     
+    'BTC-USD',   
+    'ETH-USD',   # Ethereum
+    'GC=F',      # Or (Futures)
+    'CL=F',      # Pétrole
+    'NVDA',      # Nvidia
+    'TSLA',      # Tesla
+    'AAPL',      # Apple
+    'MSFT',      # Microsoft
+    'AMD', 
+    'AMZN', 
+    'GOOGL', 
+    'META' 
+]
     items_html = ""
     for ticker in tickers:
         try:
@@ -109,7 +124,7 @@ div[data-testid="stDataFrame"] {{
 
 .main .block-container {{
     max-width: 1400px;
-    padding-top: 4.5rem !important;
+    padding-top: 3.5rem !important;
     padding-left: 2rem;
     padding-right: 2rem;
     margin: auto;
@@ -161,7 +176,7 @@ div[data-testid="stDataFrame"] {{
 .header-container {{ text-align: center; margin-bottom: 1.5rem; }}
 
 .header-title {{
-    font-size: 2.5rem;
+    font-size: 3.2rem;
     font-weight: 800;
     background: linear-gradient(135deg, {THEME['accent_primary']} 0%, {THEME['accent_secondary']} 100%);
     -webkit-background-clip: text;
@@ -340,8 +355,8 @@ span[data-baseweb="tag"] {{ background: {THEME['bg_tertiary']} !important; borde
 def render_header():
     st.markdown("""
         <div class="header-container">
-            <div class="header-title">Quant Terminal Pro</div>
-            <div class="header-subtitle">Professional Quantitative Analysis Platform</div>
+            <div class="header-title">Onyx Terminal</div>
+            <div class="header-subtitle">Your portfolio, Automated</div>
         </div>
     """, unsafe_allow_html=True)
     
@@ -650,7 +665,7 @@ def render_virtual_trading():
 # ============================================================
 def render_footer():
     paris_time = get_paris_time()
-    st.markdown(f"""<div style="text-align:center;padding:40px 0 20px 0;border-top:1px solid {THEME['border']};margin-top:40px;"><div style="color:{THEME['text_muted']};font-size:12px;">Quant Terminal Pro © 2026 · Paris: {paris_time.strftime('%H:%M')} · <span style="color:{THEME['success']}">● Online</span></div></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style="text-align:center;padding:40px 0 20px 0;border-top:1px solid {THEME['border']};margin-top:40px;"><div style="color:{THEME['text_muted']};font-size:12px;">Onyx Terminal © 2026 · Paris: {paris_time.strftime('%H:%M')} · <span style="color:{THEME['success']}">● Online</span></div></div>""", unsafe_allow_html=True)
 
 
 # ============================================================
@@ -658,6 +673,13 @@ def render_footer():
 # ============================================================
 def main():
     init_session_state()
+    
+    # Force clear cache on first load to get fresh data
+    if 'cache_cleared' not in st.session_state:
+        clear_cache()
+        get_ticker_html_content.clear()
+        st.session_state.cache_cleared = True
+    
     render_global_styles()
     st_autorefresh(interval=300000, key="auto_refresh")
     render_header()

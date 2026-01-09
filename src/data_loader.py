@@ -132,35 +132,40 @@ def get_ticker_info(ticker: str) -> Dict:
 
 
 def get_latest_price(ticker: str) -> Optional[Dict]:
-    """Get the most recent price data for a ticker."""
+    """Get the most recent price data comparing last trading day vs previous day."""
     try:
-        df = fetch_data(ticker, period="1d", interval="1m")
+        ticker = ticker.strip().upper()
         
-        if df.empty:
-            df = fetch_data(ticker, period="5d", interval="1d")
+        # Récupérer l'historique daily (5 derniers jours de trading)
+        df_daily = fetch_data(ticker, period="5d", interval="1d")
         
-        if df.empty:
+        if df_daily.empty or len(df_daily) < 2:
             return None
         
-        latest = df.iloc[-1]
-        prev_close = df['Close'].iloc[-2] if len(df) > 1 else latest['Close']
+        # Toujours utiliser les deux derniers jours de trading disponibles
+        # df_daily[-1] = dernier jour de trading (ex: vendredi)
+        # df_daily[-2] = avant-dernier jour de trading (ex: jeudi)
+        current_price = float(df_daily['Close'].iloc[-1])
+        prev_close = float(df_daily['Close'].iloc[-2])
+        current_volume = int(df_daily['Volume'].iloc[-1])
         
-        change = latest['Close'] - prev_close
-        change_pct = (change / prev_close) * 100 if prev_close != 0 else 0
-        
+        # Calcul de la variation
+        change = current_price - prev_close
+        change_pct = (change / prev_close) * 100 if prev_close != 0 else 0.0
+
         return {
-            "ticker": ticker.upper(),
-            "price": float(latest['Close']),
-            "open": float(latest['Open']),
-            "high": float(latest['High']),
-            "low": float(latest['Low']),
-            "volume": int(latest['Volume']) if pd.notna(latest['Volume']) else 0,
-            "change": float(change),
-            "change_pct": float(change_pct),
-            "timestamp": df.index[-1],
+            "ticker": ticker,
+            "price": current_price,
+            "open": float(df_daily['Open'].iloc[-1]),
+            "high": float(df_daily['High'].iloc[-1]),
+            "low": float(df_daily['Low'].iloc[-1]),
+            "volume": current_volume,
+            "change": change,
+            "change_pct": change_pct,
+            "timestamp": df_daily.index[-1],
             "is_positive": change >= 0,
         }
-    except Exception:
+    except Exception as e:
         return None
 
 
