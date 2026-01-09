@@ -1,17 +1,18 @@
-
 # QUANTITATIVE FINANCE DASHBOARD
 
-**Authors:** Matthieu HANNA GERGUIS & Maxime GRUEZ
-**Course:** A4-IF3 | Python, Git, Linux for Finance
-**Institution:** ESILV (Ecole Supérieure d'Ingénieurs Léonard de Vinci)
+- **Authors:** Matthieu HANNA GERGUIS & Maxime GRUEZ
+- **Course:** A4-IF3 | Python, Git, Linux for Finance
+- **Institution:** ESILV (Ecole Supérieure d'Ingénieurs Léonard de Vinci)
 
 ---
 
 ## ACCESS THE PLATFORM
 
-**Live Deployment (AWS):** http://13.60.215.60:8501
-**Private/Local Access:** http://localhost:8501
-**Status:** Online - Hosted on Linux VM (AWS EC2)
+Click the links below to access the dashboard:
+
+- **Live Deployment (AWS):** http://13.60.215.60:8501
+- **Private/Local Access:** http://localhost:8501
+- **Status:** Online - Hosted on Linux VM (AWS EC2)
 
 ---
 
@@ -21,7 +22,7 @@ This project is a professional-grade real-time financial dashboard developed to 
 
 The application is deployed on a Linux Virtual Machine and features a robust automation architecture using Cron jobs for continuous operation, self-healing (health checks), and automated daily reporting.
 
-**Key Features:**
+### Key Features
 - **Quant A:** Single-asset analysis with 8 backtested trading strategies and Machine Learning price predictions.
 - **Quant B:** Portfolio optimization using Modern Portfolio Theory (MPT) and Hierarchical Risk Parity (HRP).
 - **Automation:** Fully automated infrastructure managing data fetching and system stability.
@@ -170,7 +171,7 @@ pytest tests/ -v
 
 ## COMMANDS REFERENCE
 
-**Application Management**
+### Application Management
 
 ```bash
 # Start Dashboard
@@ -181,7 +182,7 @@ nohup streamlit run app.py --server.port 8501 > logs/app.log 2>&1 &
 
 ```
 
-**Logs & Monitoring**
+### Logs & Monitoring
 
 ```bash
 # View App Logs
@@ -192,7 +193,7 @@ grep CRON /var/log/syslog
 
 ```
 
-**Manual Operations**
+### Manual Operations
 
 ```bash
 # Generate PDF Report manually
