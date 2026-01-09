@@ -13,6 +13,7 @@ Click the links below to access the dashboard:
 - **Live Deployment (AWS):** http://13.60.215.60:8501
 - **Private/Local Access:** http://localhost:8501
 - **Status:** Online - Hosted on Linux VM (AWS EC2)
+- **Address of website used for scrapping / API consumption: ** https://finance.yahoo.com
 
 ---
 
