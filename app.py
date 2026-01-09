@@ -20,7 +20,6 @@ st.set_page_config(
 )
 
 # import our modules (after page config)
-from src.quant_a import render_quant_a
 from src.quant_b import render_quant_b
 from src.data_loader import clear_cache, get_latest_price
 from src.utils import COLORS, get_paris_time, is_market_open
@@ -597,7 +596,7 @@ def main():
     if current_page == "Home":
         render_home()
     elif current_page == "Single Asset":
-        render_quant_a(show_header=True)
+        st.info("📈 Quant A est sur l’autre branche : `quant-a-module`.")
     elif current_page == "Portfolio":
         render_quant_b(show_header=True)
     elif current_page == "Settings":
