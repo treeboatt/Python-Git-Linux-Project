@@ -1,619 +1,678 @@
 """
-Main Streamlit Application
-Quantitative Finance Dashboard - Single Asset & Portfolio Analysis
-Auto-refreshes every 5 minutes as required.
+Quant Terminal Pro - Professional Quantitative Finance Platform
+Main Streamlit Application with Virtual Trading
 """
 
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 from streamlit_option_menu import option_menu
 import pandas as pd
+import numpy as np
 from datetime import datetime
 import pytz
 
-# page config must be first streamlit command
+# Page Configuration
 st.set_page_config(
-    page_title="Quant Dashboard",
-    page_icon="📈",
+    page_title="Quant Terminal Pro",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# import our modules (after page config)
-from src.quant_a import render_quant_a
+# Internal Module Imports
+from src.quant_a import render_quant_a, run_strategy, STRATEGIES, apply_rsi_strategy
 from src.quant_b import render_quant_b
-from src.data_loader import clear_cache, get_latest_price
-from src.utils import COLORS, get_paris_time, is_market_open
+from src.data_loader import clear_cache, get_latest_price, fetch_data
+from src.utils import COLORS, get_paris_time, is_market_open, POPULAR_TICKERS, format_currency
 
 
 # ============================================================
-# SESSION STATE INITIALIZATION (FIX FOR NAVIGATION BUG)
+# DESIGN SYSTEM - PROFESSIONAL COLOR PALETTE
 # ============================================================
+THEME = {
+    "bg_primary": "#0a0e14",
+    "bg_secondary": "#111820",
+    "bg_tertiary": "#1a2332",
+    "bg_hover": "#242d3d",
+    "accent_primary": "#00d4aa",
+    "accent_secondary": "#6366f1",
+    "accent_gold": "#f59e0b",
+    "success": "#10b981",
+    "danger": "#ef4444",
+    "warning": "#f59e0b",
+    "info": "#3b82f6",
+    "text_primary": "#f1f5f9",
+    "text_secondary": "#94a3b8",
+    "text_muted": "#64748b",
+    "border": "#1e293b",
+    "border_light": "#334155",
+}
 
+
+# ============================================================
+# SESSION STATE INITIALIZATION
+# ============================================================
 def init_session_state():
-    """Initialize session state for persistent navigation."""
-    if 'current_page' not in st.session_state:
-        st.session_state.current_page = "Home"
-    if 'menu_key' not in st.session_state:
-        st.session_state.menu_key = 0
-
-
-def get_page_index(page_name: str) -> int:
-    """Get the index of a page in the menu."""
-    pages = ["Home", "Single Asset", "Portfolio", "Settings"]
-    return pages.index(page_name) if page_name in pages else 0
-
-
-# ============================================================
-# CUSTOM CSS FOR PROFESSIONAL LOOK
-# ============================================================
-
-def inject_custom_css():
-    """Inject custom CSS for better styling."""
-    st.markdown("""
-    <style>
-    /* main background */
-    .stApp {
-        background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+    defaults = {
+        'current_page': "Dashboard",
+        'virtual_balance': 100000.0,
+        'portfolio': {},
+        'trade_history': [],
+        'initial_balance': 100000.0,
     }
-    
-    /* sidebar styling */
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #1a1a2e 0%, #0f0f1a 100%);
-        border-right: 1px solid rgba(99, 102, 241, 0.2);
-    }
-    
-    /* cards/containers */
-    [data-testid="stExpander"] {
-        background-color: rgba(30, 30, 46, 0.6);
-        border: 1px solid rgba(99, 102, 241, 0.2);
-        border-radius: 10px;
-    }
-    
-    /* metrics styling */
-    [data-testid="stMetricValue"] {
-        font-size: 1.8rem;
-        font-weight: 700;
-    }
-    
-    [data-testid="stMetricDelta"] > div {
-        font-size: 0.9rem;
-    }
-    
-    /* tabs styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: rgba(30, 30, 46, 0.4);
-        border-radius: 10px;
-        padding: 5px;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 8px;
-        padding: 10px 20px;
-        background-color: transparent;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background-color: rgba(99, 102, 241, 0.3);
-    }
-    
-    /* buttons */
-    .stButton > button {
-        background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 0.5rem 1rem;
-        font-weight: 600;
-        transition: all 0.3s ease;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
-    }
-    
-    /* dataframes */
-    [data-testid="stDataFrame"] {
-        border-radius: 10px;
-        overflow: hidden;
-    }
-    
-    /* selectbox */
-    [data-testid="stSelectbox"] > div > div {
-        background-color: rgba(30, 30, 46, 0.6);
-        border: 1px solid rgba(99, 102, 241, 0.3);
-        border-radius: 8px;
-    }
-    
-    /* text input */
-    [data-testid="stTextInput"] > div > div > input {
-        background-color: rgba(30, 30, 46, 0.6);
-        border: 1px solid rgba(99, 102, 241, 0.3);
-        border-radius: 8px;
-    }
-    
-    /* slider */
-    [data-testid="stSlider"] > div > div > div {
-        background-color: #6366f1;
-    }
-    
-    /* hide streamlit branding */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    
-    /* custom header */
-    .main-header {
-        background: linear-gradient(90deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
-        border: 1px solid rgba(99, 102, 241, 0.2);
-        border-radius: 15px;
-        padding: 20px 30px;
-        margin-bottom: 20px;
-    }
-    
-    .main-header h1 {
-        background: linear-gradient(90deg, #6366f1, #8b5cf6, #a855f7);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-size: 2.5rem;
-        font-weight: 800;
-        margin-bottom: 5px;
-    }
-    
-    .main-header p {
-        color: #94a3b8;
-        font-size: 1rem;
-    }
-    
-    /* status indicator */
-    .status-indicator {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 5px 12px;
-        border-radius: 20px;
-        font-size: 0.85rem;
-        font-weight: 500;
-    }
-    
-    .status-open {
-        background-color: rgba(16, 185, 129, 0.2);
-        color: #10b981;
-        border: 1px solid rgba(16, 185, 129, 0.3);
-    }
-    
-    .status-closed {
-        background-color: rgba(239, 68, 68, 0.2);
-        color: #ef4444;
-        border: 1px solid rgba(239, 68, 68, 0.3);
-    }
-    
-    /* info boxes */
-    .info-box {
-        background-color: rgba(59, 130, 246, 0.1);
-        border: 1px solid rgba(59, 130, 246, 0.3);
-        border-radius: 10px;
-        padding: 15px;
-        margin: 10px 0;
-    }
-    
-    /* divider */
-    hr {
-        border: none;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.3), transparent);
-        margin: 20px 0;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
 
 # ============================================================
-# AUTO-REFRESH (5 MINUTES = 300000 MS)
+# TICKER BAR - LIVE MARKET DATA SCROLL
 # ============================================================
-
-def setup_auto_refresh():
-    """Setup auto-refresh every 5 minutes."""
-    count = st_autorefresh(interval=300000, limit=None, key="auto_refresh")
-    return count
+@st.cache_data(ttl=300, show_spinner=False)
+def get_ticker_html_content():
+    tickers = ["SPY", "QQQ", "DIA", "BTC-USD", "ETH-USD", "NVDA", "TSLA", "AAPL", "MSFT", "AMZN", "GOOGL", "META"]
+    items_html = ""
+    for ticker in tickers:
+        try:
+            data = get_latest_price(ticker)
+            if data:
+                is_up = data['is_positive']
+                color = THEME['success'] if is_up else THEME['danger']
+                arrow = "▲" if is_up else "▼"
+                items_html += f'<div class="ticker-item"><span class="ticker-symbol">{ticker}</span><span class="ticker-price">${data["price"]:,.2f}</span><span class="ticker-change" style="color:{color}">{arrow} {abs(data["change_pct"]):.2f}%</span></div>'
+        except:
+            continue
+    return items_html
 
 
 # ============================================================
-# HEADER COMPONENT
+# GLOBAL STYLES
 # ============================================================
+def render_global_styles():
+    ticker_items_html = get_ticker_html_content()
+    
+    st.markdown(f"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
+* {{ font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }}
+
+.mono, .ticker-price, .metric-value, .card-value,
+div[data-testid="stMetricValue"],
+div[data-testid="stDataFrame"] {{
+    font-family: 'JetBrains Mono', monospace !important;
+}}
+
+.stApp {{
+    background: linear-gradient(180deg, {THEME['bg_primary']} 0%, {THEME['bg_secondary']} 100%);
+    color: {THEME['text_primary']};
+}}
+
+.main .block-container {{
+    max-width: 1400px;
+    padding-top: 4.5rem !important;
+    padding-left: 2rem;
+    padding-right: 2rem;
+    margin: auto;
+}}
+
+#MainMenu, footer, header {{ visibility: hidden; }}
+.stDeployButton {{ display: none; }}
+
+@keyframes ticker-scroll {{
+    0% {{ transform: translateX(0); }}
+    100% {{ transform: translateX(-50%); }}
+}}
+
+.ticker-wrap {{
+    width: 100%;
+    overflow: hidden;
+    background: linear-gradient(90deg, {THEME['bg_secondary']} 0%, {THEME['bg_tertiary']} 50%, {THEME['bg_secondary']} 100%);
+    border-bottom: 1px solid {THEME['border']};
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 9999;
+    height: 42px;
+    display: flex;
+    align-items: center;
+}}
+
+.ticker-move {{
+    display: flex;
+    white-space: nowrap;
+    animation: ticker-scroll 80s linear infinite;
+}}
+
+.ticker-move:hover {{ animation-play-state: paused; }}
+
+.ticker-item {{
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 28px;
+    font-size: 13px;
+    border-right: 1px solid {THEME['border']};
+}}
+
+.ticker-symbol {{ font-weight: 600; color: {THEME['text_primary']}; }}
+.ticker-price {{ color: {THEME['text_secondary']}; font-size: 12px; }}
+.ticker-change {{ font-weight: 600; font-size: 12px; }}
+
+.header-container {{ text-align: center; margin-bottom: 1.5rem; }}
+
+.header-title {{
+    font-size: 2.5rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, {THEME['accent_primary']} 0%, {THEME['accent_secondary']} 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 0.25rem;
+}}
+
+.header-subtitle {{ color: {THEME['text_muted']}; font-size: 1rem; font-weight: 400; }}
+
+@keyframes pulse {{
+    0%, 100% {{ opacity: 1; }}
+    50% {{ opacity: 0.5; }}
+}}
+
+.status-dot {{
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+    animation: pulse 2s infinite;
+}}
+
+.status-open {{ background: {THEME['success']}; box-shadow: 0 0 10px rgba(16, 185, 129, 0.4); }}
+.status-closed {{ background: {THEME['danger']}; box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }}
+
+.card {{
+    background: {THEME['bg_secondary']};
+    border: 1px solid {THEME['border']};
+    border-radius: 12px;
+    padding: 20px;
+    transition: all 0.3s ease;
+}}
+
+.card:hover {{
+    border-color: rgba(0, 212, 170, 0.25);
+    box-shadow: 0 8px 32px rgba(0, 212, 170, 0.08);
+    transform: translateY(-2px);
+}}
+
+.card-accent {{ border-left: 3px solid {THEME['accent_primary']}; }}
+
+.card-label {{
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: {THEME['text_muted']};
+    margin-bottom: 8px;
+}}
+
+.card-value {{ font-size: 28px; font-weight: 700; color: {THEME['text_primary']}; line-height: 1.2; }}
+.card-change {{ font-size: 13px; font-weight: 500; margin-top: 4px; }}
+.card-change.positive {{ color: {THEME['success']}; }}
+.card-change.negative {{ color: {THEME['danger']}; }}
+.card-change.neutral {{ color: {THEME['text_muted']}; }}
+
+.metric-card {{
+    background: {THEME['bg_tertiary']};
+    border: 1px solid {THEME['border']};
+    border-radius: 10px;
+    padding: 16px 20px;
+    text-align: center;
+}}
+
+.metric-card:hover {{ border-color: {THEME['border_light']}; background: {THEME['bg_hover']}; }}
+.metric-label {{ font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; color: {THEME['text_muted']}; margin-bottom: 6px; }}
+.metric-value {{ font-size: 22px; font-weight: 700; }}
+.metric-positive {{ color: {THEME['success']}; }}
+.metric-negative {{ color: {THEME['danger']}; }}
+.metric-neutral {{ color: {THEME['text_primary']}; }}
+
+.table-header {{
+    display: grid;
+    grid-template-columns: 2fr 1.5fr 1fr 1fr 1fr;
+    padding: 12px 16px;
+    background: {THEME['bg_tertiary']};
+    border-radius: 8px 8px 0 0;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: {THEME['text_muted']};
+}}
+
+.table-row {{
+    display: grid;
+    grid-template-columns: 2fr 1.5fr 1fr 1fr 1fr;
+    padding: 14px 16px;
+    border-bottom: 1px solid {THEME['border']};
+    align-items: center;
+    font-size: 14px;
+}}
+
+.table-row:hover {{ background: {THEME['bg_tertiary']}; }}
+
+.signal-card {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    background: {THEME['bg_tertiary']};
+    border: 1px solid {THEME['border']};
+    border-radius: 10px;
+    margin-bottom: 10px;
+}}
+
+.signal-card:hover {{ transform: translateX(4px); border-color: {THEME['border_light']}; }}
+.signal-buy {{ border-left: 3px solid {THEME['success']}; }}
+.signal-sell {{ border-left: 3px solid {THEME['danger']}; }}
+.signal-ticker {{ font-weight: 700; font-size: 15px; color: {THEME['text_primary']}; }}
+.signal-strategy {{ font-size: 11px; color: {THEME['text_muted']}; margin-top: 2px; }}
+.signal-type {{ font-weight: 700; font-size: 12px; text-transform: uppercase; }}
+
+.badge {{ display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; }}
+.badge-success {{ background: rgba(16, 185, 129, 0.15); color: {THEME['success']}; }}
+.badge-danger {{ background: rgba(239, 68, 68, 0.15); color: {THEME['danger']}; }}
+
+.section-title {{
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: {THEME['text_muted']};
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}}
+
+.section-title::after {{
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, {THEME['border']} 0%, transparent 100%);
+}}
+
+div[data-testid="stVerticalBlockBorderWrapper"] {{
+    background: {THEME['bg_secondary']};
+    border: 1px solid {THEME['border']};
+    border-radius: 12px;
+}}
+
+.stTabs [data-baseweb="tab-list"] {{
+    gap: 8px;
+    background: {THEME['bg_tertiary']};
+    padding: 4px;
+    border-radius: 10px;
+}}
+
+.stTabs [data-baseweb="tab"] {{ border-radius: 8px; padding: 8px 20px; font-weight: 500; }}
+.stTabs [aria-selected="true"] {{ background: rgba(0, 212, 170, 0.15) !important; color: {THEME['accent_primary']} !important; }}
+
+.stButton > button {{
+    background: linear-gradient(135deg, {THEME['accent_primary']} 0%, {THEME['accent_secondary']} 100%);
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+}}
+
+.stButton > button:hover {{
+    transform: translateY(-1px);
+    box-shadow: 0 4px 20px rgba(0, 212, 170, 0.4);
+}}
+
+span[data-baseweb="tag"] {{ background: {THEME['bg_tertiary']} !important; border: 1px solid {THEME['border']} !important; }}
+</style>
+<div class="ticker-wrap"><div class="ticker-move">{ticker_items_html}{ticker_items_html}</div></div>
+""", unsafe_allow_html=True)
+
+
+# ============================================================
+# HEADER & NAVIGATION
+# ============================================================
 def render_header():
-    """Render the main header with status info."""
-    paris_time = get_paris_time()
-    market_status = is_market_open()
-    
     st.markdown("""
-    <div class="main-header">
-        <h1>📈 Quantitative Finance Dashboard</h1>
-        <p>Real-time market analysis, backtesting strategies, and portfolio optimization</p>
-    </div>
+        <div class="header-container">
+            <div class="header-title">Quant Terminal Pro</div>
+            <div class="header-subtitle">Professional Quantitative Analysis Platform</div>
+        </div>
     """, unsafe_allow_html=True)
     
-    col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
+    pages = ["Dashboard", "Single Asset", "Portfolio", "Virtual Trading"]
+    current_idx = pages.index(st.session_state.current_page) if st.session_state.current_page in pages else 0
     
-    with col1:
-        status_class = "status-open" if market_status else "status-closed"
-        status_text = "● Market Open" if market_status else "● Market Closed"
-        st.markdown(f'<span class="status-indicator {status_class}">{status_text}</span>', unsafe_allow_html=True)
+    selected = option_menu(
+        menu_title=None,
+        options=pages,
+        icons=["grid-3x3-gap", "graph-up-arrow", "pie-chart", "lightning-charge"],
+        default_index=current_idx,
+        orientation="horizontal",
+        styles={
+            "container": {"padding": "8px", "background-color": THEME['bg_secondary'], "border-radius": "12px", "border": f"1px solid {THEME['border']}"},
+            "icon": {"color": THEME['accent_primary'], "font-size": "16px"},
+            "nav-link": {"font-size": "14px", "font-weight": "500", "text-align": "center", "border-radius": "8px", "margin": "0 4px", "color": THEME['text_secondary'], "padding": "10px 20px"},
+            "nav-link-selected": {"background": f"linear-gradient(135deg, {THEME['accent_primary']} 0%, {THEME['accent_secondary']} 100%)", "color": "white", "font-weight": "600"},
+        }
+    )
     
-    with col2:
-        st.markdown(f"🕐 **Paris:** {paris_time.strftime('%H:%M:%S')}")
-    
-    with col3:
-        st.markdown(f"📅 **Date:** {paris_time.strftime('%Y-%m-%d')}")
-    
-    with col4:
-        st.markdown("🔄 **Auto-refresh:** 5 min")
+    if selected != st.session_state.current_page:
+        st.session_state.current_page = selected
+        st.rerun()
 
 
 # ============================================================
-# SIDEBAR WITH FIXED NAVIGATION
+# UTILITY FUNCTIONS
 # ============================================================
+def calculate_portfolio_value():
+    total = st.session_state.virtual_balance
+    for ticker, position in st.session_state.portfolio.items():
+        price_data = get_latest_price(ticker)
+        if price_data:
+            total += position['shares'] * price_data['price']
+    return total
 
-def render_sidebar():
-    """Render sidebar with navigation and info."""
-    with st.sidebar:
-        st.markdown("""
-        <div style="text-align: center; padding: 20px 0;">
-            <h2 style="background: linear-gradient(90deg, #6366f1, #8b5cf6); 
-                       -webkit-background-clip: text; 
-                       -webkit-text-fill-color: transparent;
-                       font-size: 1.5rem;">
-                🎯 Quant Platform
-            </h2>
+
+@st.cache_data(ttl=600)
+def scan_market_signals():
+    signals = []
+    scan_list = ["AAPL", "TSLA", "NVDA", "AMD", "MSFT", "AMZN", "GOOGL", "META", "BTC-USD", "ETH-USD"]
+    for ticker in scan_list:
+        try:
+            df = fetch_data(ticker, period="1mo", interval="1d")
+            if df.empty:
+                continue
+            res_rsi = apply_rsi_strategy(df.copy(), window=14)
+            last_rsi = res_rsi['RSI'].iloc[-1]
+            if last_rsi < 30:
+                signals.append({"ticker": ticker, "type": "BUY", "strategy": "RSI Oversold", "value": f"RSI {last_rsi:.0f}"})
+            elif last_rsi > 70:
+                signals.append({"ticker": ticker, "type": "SELL", "strategy": "RSI Overbought", "value": f"RSI {last_rsi:.0f}"})
+            ret_5d = df['Close'].pct_change(5).iloc[-1]
+            if ret_5d > 0.10:
+                signals.append({"ticker": ticker, "type": "BUY", "strategy": "Strong Momentum", "value": f"+{ret_5d*100:.1f}% (5d)"})
+        except:
+            continue
+    return signals
+
+
+# ============================================================
+# DASHBOARD PAGE
+# ============================================================
+# ============================================================
+# DASHBOARD PAGE
+# ============================================================
+def render_dashboard():
+    paris_time = get_paris_time()
+    market_open = is_market_open()
+    
+    # 3 Colonnes : Status | Heure | Refresh
+    # J'ai gardé les proportions
+    hud_left, hud_right, hud_refresh = st.columns([3, 1.5, 0.2])
+    
+    with hud_left:
+        status_class = "status-open" if market_open else "status-closed"
+        status_text = "MARKET OPEN" if market_open else "MARKET CLOSED"
+        status_color = THEME['success'] if market_open else THEME['danger']
+        
+        next_open = ""
+        if not market_open:
+            hour = paris_time.hour
+            weekday = paris_time.weekday()
+            if weekday >= 5:
+                next_open = " · Opens Monday 15:30 CET"
+            elif hour >= 22:
+                next_open = " · Opens Monday 15:30 CET" if weekday == 4 else " · Opens Tomorrow 15:30 CET"
+            elif hour < 15 or (hour == 15 and paris_time.minute < 30):
+                next_open = " · Opens Today 15:30 CET"
+        
+        # MODIFICATION ICI : padding-top passé à 15px pour descendre le texte
+        st.markdown(f"""
+        <div style="display:flex;align-items:center;padding-top:15px;">
+            <span class="status-dot {status_class}"></span>
+            <span style="font-weight:600;color:{status_color};text-transform:uppercase;font-size:12px;letter-spacing:1px;">{status_text}</span>
+            <span style="color:{THEME['text_muted']};font-size:12px;margin-left:8px;">{next_open}</span>
         </div>
         """, unsafe_allow_html=True)
-        
-        # get current page index for default_index
-        current_index = get_page_index(st.session_state.current_page)
-        
-        # navigation menu with persistent selection
-        selected = option_menu(
-            menu_title=None,
-            options=["Home", "Single Asset", "Portfolio", "Settings"],
-            icons=["house", "graph-up", "pie-chart", "gear"],
-            menu_icon="cast",
-            default_index=current_index,
-            key=f"nav_menu_{st.session_state.menu_key}",
-            styles={
-                "container": {"padding": "5px", "background-color": "transparent"},
-                "icon": {"color": "#8b5cf6", "font-size": "18px"},
-                "nav-link": {
-                    "font-size": "14px",
-                    "text-align": "left",
-                    "margin": "5px 0",
-                    "padding": "10px 15px",
-                    "border-radius": "8px",
-                    "--hover-color": "rgba(99, 102, 241, 0.2)",
-                },
-                "nav-link-selected": {
-                    "background-color": "rgba(99, 102, 241, 0.3)",
-                    "font-weight": "600",
-                },
-            }
-        )
-        
-        # update session state when menu selection changes
-        if selected != st.session_state.current_page:
-            st.session_state.current_page = selected
-        
-        st.markdown("---")
-        
-        # quick ticker lookup
-        st.markdown("### 🔍 Quick Lookup")
-        quick_ticker = st.text_input("Ticker", value="AAPL", key="quick_lookup")
-        
-        if quick_ticker:
-            price_data = get_latest_price(quick_ticker)
-            if price_data:
-                delta_color = "normal" if price_data['is_positive'] else "inverse"
-                st.metric(
-                    label=quick_ticker.upper(),
-                    value=f"${price_data['price']:.2f}",
-                    delta=f"{price_data['change_pct']:.2f}%",
-                    delta_color=delta_color
-                )
-            else:
-                st.warning("Ticker not found")
-        
-        st.markdown("---")
-        
-        # about section
-        with st.expander("ℹ️ About"):
-            st.markdown("""
-            **Quant Dashboard v1.0**
-            
-            A professional quantitative finance platform for:
-            - Single asset analysis & backtesting
-            - Multi-asset portfolio optimization
-            - ML-based price predictions
-            
-            Built with Streamlit, yfinance, and love.
-            
-            ---
-            
-            **Team:** Quant Research
-            
-            **Data:** Yahoo Finance API
-            
-            **Refresh:** Every 5 minutes
-            """)
-        
-        # cache control
-        if st.button("🔄 Force Refresh Data"):
-            clear_cache()
-            st.success("Cache cleared!")
-            st.rerun()
-        
-        return selected
-
-
-# ============================================================
-# HOME PAGE
-# ============================================================
-
-def render_home():
-    """Render the home page with overview."""
-    st.markdown("## 🏠 Welcome to Quant Dashboard")
     
-    st.markdown("""
-    <div class="info-box">
-        <strong>📊 What is this?</strong><br>
-        A professional-grade quantitative finance platform for analyzing individual assets 
-        and building optimized portfolios. Features include backtesting, ML predictions, 
-        and real-time data.
-    </div>
-    """, unsafe_allow_html=True)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("""
-        ### 📈 Single Asset Analysis (Quant A)
-        
-        Analyze individual assets with:
-        - **8 Trading Strategies**: SMA, EMA, RSI, Bollinger, MACD, Momentum, Mean Reversion, Buy & Hold
-        - **Backtesting**: Test strategies on historical data
-        - **Performance Metrics**: Sharpe, Sortino, Max Drawdown, VaR
-        - **ML Predictions**: Prophet, Linear Regression, Momentum forecasts
-        - **Interactive Charts**: Candlesticks, signals, indicators, drawdown
-        
-        Perfect for deep-diving into a single stock, crypto, or forex pair.
-        """)
-        
-        if st.button("Go to Single Asset →", key="goto_quant_a"):
-            st.session_state.current_page = "Single Asset"
-            st.session_state.menu_key += 1
+    with hud_right:
+        # MODIFICATION ICI : padding-top passé à 15px pour descendre l'heure aussi
+        st.markdown(f"""
+        <div style="text-align:right;padding-top:15px;">
+            <span style="font-size:14px;font-weight:600;font-family:'JetBrains Mono',monospace;color:{THEME['text_primary']}">{paris_time.strftime('%H:%M')}</span>
+            <span style="color:{THEME['border_light']};margin:0 10px;">|</span>
+            <span style="font-size:12px;color:{THEME['text_muted']};">{paris_time.strftime('%A, %d %B')}</span>
+            <span style="font-size:12px;color:{THEME['accent_primary']};font-weight:600;margin-left:5px;">PARIS</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with hud_refresh:
+        # Le bouton reste à sa place, c'est le texte à gauche qui est descendu pour s'aligner
+        st.markdown('<div style="margin-top: 2px;"></div>', unsafe_allow_html=True)
+        if st.button("↻", key="refresh_hud", help="Refresh Data", use_container_width=True):
             st.rerun()
     
-    with col2:
-        st.markdown("""
-        ### 📊 Portfolio Analysis (Quant B)
+    st.markdown("<div style='margin-bottom:25px;'></div>", unsafe_allow_html=True)
+    
+    # ... (Le reste de la fonction reste identique) ...
+    # Market Overview
+    st.markdown('<div class="section-title"> Market Overview</div>', unsafe_allow_html=True)
+    
+    indices = [("SPY", "S&P 500", "🇺🇸"), ("QQQ", "NASDAQ 100", "💻"), ("BTC-USD", "Bitcoin", "₿"), ("GC=F", "Gold", "🥇")]
+    
+    cols = st.columns(4)
+    for col, (ticker, name, icon) in zip(cols, indices):
+        data = get_latest_price(ticker)
+        if data:
+            change_class = "positive" if data['is_positive'] else "negative"
+            arrow = "↑" if data['is_positive'] else "↓"
+            with col:
+                st.markdown(f"""<div class="card card-accent"><div class="card-label">{icon} {name}</div><div class="card-value">${data['price']:,.2f}</div><div class="card-change {change_class}">{arrow} {abs(data['change_pct']):.2f}%</div></div>""", unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Main Content
+    col_left, col_right = st.columns([2.2, 1], gap="large")
+    
+    with col_left:
+        st.markdown('<div class="section-title"> Market Movers</div>', unsafe_allow_html=True)
         
-        Build and analyze portfolios with:
-        - **7 Allocation Methods**: Equal Weight, Min Variance, Risk Parity, Max Sharpe, HRP
-        - **Rebalancing Options**: None, Daily, Weekly, Monthly
-        - **Risk Analysis**: Correlation matrix, diversification ratio
-        - **Efficient Frontier**: Visualize risk-return tradeoff
-        - **Risk Contribution**: See how each asset impacts portfolio risk
+        with st.container(border=True):
+            watchlist = ["NVDA", "TSLA", "AAPL", "MSFT", "AMD", "META", "AMZN", "GOOGL"]
+            
+            st.markdown(f"""<div class="table-header"><div>SYMBOL</div><div>PRICE</div><div>CHANGE</div><div>VOLUME</div><div>STATUS</div></div>""", unsafe_allow_html=True)
+            
+            for ticker in watchlist:
+                data = get_latest_price(ticker)
+                if data:
+                    change_color = THEME['success'] if data['is_positive'] else THEME['danger']
+                    badge_class = "badge-success" if data['is_positive'] else "badge-danger"
+                    arrow = "▲" if data['is_positive'] else "▼"
+                    vol_str = f"{data['volume']/1e6:.1f}M" if data['volume'] > 1e6 else f"{data['volume']/1e3:.0f}K"
+                    
+                    st.markdown(f"""<div class="table-row"><div style="font-weight:600;">{ticker}</div><div class="mono">${data['price']:,.2f}</div><div style="color:{change_color};font-weight:500;">{arrow} {abs(data['change_pct']):.2f}%</div><div class="mono" style="color:{THEME['text_muted']}">{vol_str}</div><div><span class="badge {badge_class}">{'BULLISH' if data['is_positive'] else 'BEARISH'}</span></div></div>""", unsafe_allow_html=True)
+    
+    with col_right:
+        st.markdown('<div class="section-title"> Portfolio Summary</div>', unsafe_allow_html=True)
         
-        Perfect for building diversified portfolios with multiple assets.
-        """)
+        total_val = calculate_portfolio_value()
+        pnl = total_val - st.session_state.initial_balance
+        pnl_pct = (pnl / st.session_state.initial_balance) * 100
+        pnl_class = "positive" if pnl >= 0 else "negative"
         
-        if st.button("Go to Portfolio →", key="goto_quant_b"):
-            st.session_state.current_page = "Portfolio"
-            st.session_state.menu_key += 1
+        st.markdown(f"""<div class="card card-accent" style="margin-bottom:16px;"><div class="card-label">Total Equity</div><div class="card-value">${total_val:,.2f}</div><div class="card-change {pnl_class}">{'+' if pnl >= 0 else ''}{pnl:,.2f} ({pnl_pct:+.2f}%)</div></div>""", unsafe_allow_html=True)
+        
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown(f"""<div class="metric-card"><div class="metric-label">Cash</div><div class="metric-value metric-neutral">${st.session_state.virtual_balance:,.0f}</div></div>""", unsafe_allow_html=True)
+        with col_b:
+            st.markdown(f"""<div class="metric-card"><div class="metric-label">Positions</div><div class="metric-value metric-neutral">{len(st.session_state.portfolio)}</div></div>""", unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        if st.button("🚀 Start Trading", type="primary", use_container_width=True):
+            st.session_state.current_page = "Virtual Trading"
             st.rerun()
+
+# ============================================================
+# VIRTUAL TRADING PAGE
+# ============================================================
+def render_virtual_trading():
+    total_val = calculate_portfolio_value()
+    pnl = total_val - st.session_state.initial_balance
+    pnl_pct = (pnl / st.session_state.initial_balance) * 100
+    invested = total_val - st.session_state.virtual_balance
     
-    st.markdown("---")
+    st.markdown('<div class="section-title"> Paper Trading Dashboard</div>', unsafe_allow_html=True)
     
-    # market overview
-    st.markdown("### 🌍 Market Overview")
+    m1, m2, m3, m4 = st.columns(4)
     
-    market_tickers = ["^GSPC", "^DJI", "^IXIC", "BTC-USD", "EURUSD=X", "GC=F"]
-    market_names = ["S&P 500", "Dow Jones", "NASDAQ", "Bitcoin", "EUR/USD", "Gold"]
+    metrics_data = [
+        ("Total Portfolio", f"${total_val:,.2f}", f"{pnl:+,.2f} ({pnl_pct:+.2f}%)", "positive" if pnl >= 0 else "negative"),
+        ("Cash Balance", f"${st.session_state.virtual_balance:,.2f}", "Available to trade", "neutral"),
+        ("Total Invested", f"${invested:,.2f}", f"In {len(st.session_state.portfolio)} positions", "neutral"),
+        ("Total Trades", str(len(st.session_state.trade_history)), "Executed orders", "neutral"),
+    ]
     
-    cols = st.columns(6)
+    for col, (label, value, subtext, status) in zip([m1, m2, m3, m4], metrics_data):
+        with col:
+            st.markdown(f"""<div class="card card-accent"><div class="card-label">{label}</div><div class="card-value">{value}</div><div class="card-change {status}">{subtext}</div></div>""", unsafe_allow_html=True)
     
-    for i, (ticker, name) in enumerate(zip(market_tickers, market_names)):
-        with cols[i]:
-            price_data = get_latest_price(ticker)
-            if price_data:
-                st.metric(
-                    label=name,
-                    value=f"${price_data['price']:,.2f}" if price_data['price'] > 100 else f"${price_data['price']:.4f}",
-                    delta=f"{price_data['change_pct']:.2f}%",
-                    delta_color="normal" if price_data['is_positive'] else "inverse"
-                )
-            else:
-                st.metric(label=name, value="N/A", delta="--")
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    st.markdown("---")
+    col_main, col_side = st.columns([2, 1], gap="large")
     
-    # features grid
-    st.markdown("### ✨ Platform Features")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown("""
-        **🔄 Real-Time Data**
+    with col_main:
+        st.markdown('<div class="section-title"> Active Positions</div>', unsafe_allow_html=True)
         
-        Auto-refreshes every 5 minutes with live market data from Yahoo Finance.
-        """)
-    
-    with col2:
-        st.markdown("""
-        **📊 8 Strategies**
+        if not st.session_state.portfolio:
+            st.info("No active positions. Use the trading panel to place your first order.")
+        else:
+            with st.container(border=True):
+                st.markdown(f"""<div class="table-header" style="grid-template-columns:1.5fr 1fr 1fr 1fr 1fr 1fr;"><div>SYMBOL</div><div>QTY</div><div>AVG PRICE</div><div>CURRENT</div><div>P&L</div><div>ACTION</div></div>""", unsafe_allow_html=True)
+                
+                for ticker, pos in list(st.session_state.portfolio.items()):
+                    data = get_latest_price(ticker)
+                    if data:
+                        current_val = pos['shares'] * data['price']
+                        cost_val = pos['shares'] * pos['avg_price']
+                        pos_pnl = current_val - cost_val
+                        badge_class = "badge-success" if pos_pnl >= 0 else "badge-danger"
+                        
+                        c1, c2, c3, c4, c5, c6 = st.columns([1.5, 1, 1, 1, 1, 1])
+                        c1.markdown(f"**{ticker}**")
+                        c2.markdown(f"{pos['shares']}")
+                        c3.markdown(f"${pos['avg_price']:.2f}")
+                        c4.markdown(f"${data['price']:.2f}")
+                        c5.markdown(f"<span class='badge {badge_class}'>{pos_pnl:+.2f}</span>", unsafe_allow_html=True)
+                        with c6:
+                            if st.button("Sell", key=f"sell_{ticker}", type="secondary"):
+                                val = pos['shares'] * data['price']
+                                st.session_state.virtual_balance += val
+                                del st.session_state.portfolio[ticker]
+                                st.session_state.trade_history.append({"time": datetime.now().strftime("%Y-%m-%d %H:%M"), "ticker": ticker, "type": "SELL", "qty": pos['shares'], "price": data['price']})
+                                st.toast(f"Sold {pos['shares']} {ticker} @ ${data['price']:.2f}", icon="✅")
+                                st.rerun()
         
-        From simple moving averages to advanced momentum and mean-reversion strategies.
-        """)
-    
-    with col3:
-        st.markdown("""
-        **🤖 ML Predictions**
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown('<div class="section-title"> Trade History</div>', unsafe_allow_html=True)
         
-        Forecast prices using Prophet, Linear Regression, and custom models.
-        """)
+        if st.session_state.trade_history:
+            hist_df = pd.DataFrame(st.session_state.trade_history)
+            st.dataframe(hist_df, use_container_width=True, hide_index=True)
+        else:
+            st.caption("No trades executed yet.")
     
-    with col4:
-        st.markdown("""
-        **📈 Portfolio Optimization**
+    with col_side:
+        with st.container(border=True):
+            st.markdown("#### Quick Trade")
+            ticker = st.selectbox("Symbol", options=POPULAR_TICKERS, index=0)
+            data = get_latest_price(ticker)
+            
+            if data:
+                price_color = THEME['success'] if data['is_positive'] else THEME['danger']
+                st.markdown(f"""<div style="margin-bottom:12px;"><div style="font-size:11px;color:{THEME['text_muted']};text-transform:uppercase;">Current Price</div><div style="font-size:24px;font-weight:700;font-family:'JetBrains Mono',monospace;">${data['price']:,.2f}</div><div style="font-size:12px;color:{price_color}">{data['change_pct']:+.2f}%</div></div>""", unsafe_allow_html=True)
+                
+                action = st.radio("Action", ["BUY", "SELL"], horizontal=True)
+                qty = st.number_input("Shares", min_value=1, value=10)
+                total_cost = qty * data['price']
+                
+                st.markdown(f"""<div style="text-align:right;padding:8px 0;border-top:1px solid {THEME['border']};margin-top:8px;"><span style="color:{THEME['text_muted']};font-size:12px;">Est. Total:</span><span style="font-weight:700;font-size:16px;margin-left:8px;">${total_cost:,.2f}</span></div>""", unsafe_allow_html=True)
+                
+                if st.button("Execute Order", type="primary", use_container_width=True):
+                    if action == "BUY":
+                        if total_cost <= st.session_state.virtual_balance:
+                            st.session_state.virtual_balance -= total_cost
+                            pos = st.session_state.portfolio.get(ticker, {'shares': 0, 'avg_price': 0})
+                            new_shares = pos['shares'] + qty
+                            new_avg = ((pos['shares'] * pos['avg_price']) + total_cost) / new_shares
+                            st.session_state.portfolio[ticker] = {'shares': new_shares, 'avg_price': new_avg}
+                            st.session_state.trade_history.append({"time": datetime.now().strftime("%Y-%m-%d %H:%M"), "ticker": ticker, "type": "BUY", "qty": qty, "price": data['price']})
+                            st.toast(f"Bought {qty} {ticker} @ ${data['price']:.2f}", icon="✅")
+                            st.rerun()
+                        else:
+                            st.toast("Insufficient funds", icon="❌")
+                    else:
+                        owned = st.session_state.portfolio.get(ticker, {}).get('shares', 0)
+                        if qty <= owned:
+                            st.session_state.virtual_balance += total_cost
+                            st.session_state.portfolio[ticker]['shares'] -= qty
+                            if st.session_state.portfolio[ticker]['shares'] == 0:
+                                del st.session_state.portfolio[ticker]
+                            st.session_state.trade_history.append({"time": datetime.now().strftime("%Y-%m-%d %H:%M"), "ticker": ticker, "type": "SELL", "qty": qty, "price": data['price']})
+                            st.toast(f"Sold {qty} {ticker} @ ${data['price']:.2f}", icon="✅")
+                            st.rerun()
+                        else:
+                            st.toast("Insufficient shares", icon="❌")
         
-        Risk parity, min variance, max Sharpe, and more allocation methods.
-        """)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### Live Signals")
+        
+        signals = scan_market_signals()
+        if not signals:
+            st.info("No strong signals detected.")
+        else:
+            for sig in signals[:5]:
+                is_buy = sig['type'] == 'BUY'
+                signal_class = "signal-buy" if is_buy else "signal-sell"
+                signal_color = THEME['success'] if is_buy else THEME['danger']
+                st.markdown(f"""<div class="signal-card {signal_class}"><div><div class="signal-ticker">{sig['ticker']}</div><div class="signal-strategy">{sig['strategy']}</div></div><div style="text-align:right;"><div class="signal-type" style="color:{signal_color}">{sig['type']}</div><div style="font-size:11px;color:{THEME['text_muted']}">{sig['value']}</div></div></div>""", unsafe_allow_html=True)
 
 
 # ============================================================
-# SETTINGS PAGE
+# FOOTER
 # ============================================================
-
-def render_settings():
-    """Render settings page."""
-    st.markdown("## ⚙️ Settings")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("### 🎨 Display Settings")
-        
-        st.checkbox("Dark mode", value=True, disabled=True, help="Dark mode is always on")
-        st.checkbox("Show signals on charts", value=True, key="show_signals")
-        st.checkbox("Show confidence intervals", value=True, key="show_ci")
-        
-        st.markdown("### 📊 Default Parameters")
-        
-        st.selectbox(
-            "Default Period",
-            ["1d", "5d", "1mo", "3mo", "6mo", "1y"],
-            index=3,
-            key="default_period"
-        )
-        
-        st.selectbox(
-            "Default Interval",
-            ["1m", "5m", "15m", "1h", "1d"],
-            index=4,
-            key="default_interval"
-        )
-    
-    with col2:
-        st.markdown("### 🔧 Cache & Data")
-        
-        st.info("Data is cached for 5 minutes to reduce API calls and improve performance.")
-        
-        if st.button("🗑️ Clear All Cache", type="primary"):
-            clear_cache()
-            st.success("✅ All cached data cleared!")
-        
-        st.markdown("### 📈 Risk Parameters")
-        
-        st.number_input(
-            "Risk-free Rate (%)",
-            min_value=0.0,
-            max_value=10.0,
-            value=4.0,
-            step=0.1,
-            key="risk_free_rate",
-            help="Annual risk-free rate for Sharpe ratio calculation"
-        )
-        
-        st.number_input(
-            "VaR Confidence Level (%)",
-            min_value=90.0,
-            max_value=99.9,
-            value=95.0,
-            step=0.5,
-            key="var_confidence",
-            help="Confidence level for Value at Risk"
-        )
-    
-    st.markdown("---")
-    
-    st.markdown("### 📝 System Information")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown("""
-        **Version:** 1.0.0
-        
-        **Python:** 3.10+
-        
-        **Framework:** Streamlit
-        """)
-    
-    with col2:
-        st.markdown("""
-        **Data Source:** Yahoo Finance
-        
-        **Refresh Rate:** 5 minutes
-        
-        **Cache TTL:** 300 seconds
-        """)
-    
-    with col3:
-        st.markdown("""
-        **Timezone:** Europe/Paris
-        
-        **Market Hours:** 9:30-16:00 ET
-        
-        **Trading Days:** 252/year
-        """)
+def render_footer():
+    paris_time = get_paris_time()
+    st.markdown(f"""<div style="text-align:center;padding:40px 0 20px 0;border-top:1px solid {THEME['border']};margin-top:40px;"><div style="color:{THEME['text_muted']};font-size:12px;">Quant Terminal Pro © 2026 · Paris: {paris_time.strftime('%H:%M')} · <span style="color:{THEME['success']}">● Online</span></div></div>""", unsafe_allow_html=True)
 
 
 # ============================================================
-# MAIN APP
+# MAIN APPLICATION
 # ============================================================
-
 def main():
-    """Main application entry point."""
-    # initialize session state first
     init_session_state()
-    
-    # inject custom CSS
-    inject_custom_css()
-    
-    # setup auto-refresh
-    refresh_count = setup_auto_refresh()
-    
-    # render sidebar and get navigation selection
-    selected = render_sidebar()
-    
-    # render header
+    render_global_styles()
+    st_autorefresh(interval=300000, key="auto_refresh")
     render_header()
     
-    st.markdown("---")
-    
-    # render selected page based on session state
-    current_page = st.session_state.current_page
-    
-    if current_page == "Home":
-        render_home()
-    elif current_page == "Single Asset":
+    page = st.session_state.current_page
+    if page == "Dashboard":
+        render_dashboard()
+    elif page == "Single Asset":
         render_quant_a(show_header=True)
-    elif current_page == "Portfolio":
+    elif page == "Portfolio":
         render_quant_b(show_header=True)
-    elif current_page == "Settings":
-        render_settings()
+    elif page == "Virtual Trading":
+        render_virtual_trading()
     
-    # footer
-    st.markdown("---")
-    st.markdown(
-        """
-        <div style="text-align: center; color: #64748b; font-size: 0.85rem; padding: 20px;">
-            <p>Quant Dashboard © 2024 | Data provided by Yahoo Finance | Auto-refreshes every 5 minutes</p>
-            <p>Built with ❤️ using Streamlit, Plotly, and Python</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    render_footer()
 
 
 if __name__ == "__main__":
