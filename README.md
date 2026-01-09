@@ -125,7 +125,7 @@ source venv/bin/activate
 streamlit run app.py
 ```
 
-Access the dashboard at http://localhost:8501
+Access the dashboard at [http://localhost:8501](http://localhost:8508/)
 
 For external access (VM deployment):
 
