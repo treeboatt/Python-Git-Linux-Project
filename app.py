@@ -1,604 +1,620 @@
-import pandas as pd
-import numpy as np
+"""
+Main Streamlit Application
+Quantitative Finance Dashboard - Single Asset & Portfolio Analysis
+Auto-refreshes every 5 minutes as required.
+"""
+
 import streamlit as st
-import plotly.graph_objects as go
-import matplotlib.pyplot as plt
-
-
 from streamlit_autorefresh import st_autorefresh
+from streamlit_option_menu import option_menu
+import pandas as pd
+from datetime import datetime
+import pytz
 
-from src.data_loader import fetch_data
-from src.quant_a import QuantAAnalyzer
-from src.quant_b import render as render_quant_b
+# page config must be first streamlit command
+st.set_page_config(
+    page_title="Quant Dashboard",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-
-st.set_page_config(page_title="Quant Dashboard", page_icon="📈", layout="wide")
-
-# --------------------
-# GLOBAL HERO CSS
-# --------------------
-st.markdown("""
-<style>
-.hero{
-  border:1px solid rgba(255,255,255,0.10);
-  background: radial-gradient(1200px 500px at 20% -10%, rgba(46,91,255,0.25), transparent 60%),
-              radial-gradient(900px 400px at 100% 0%, rgba(0,200,150,0.12), transparent 55%),
-              rgba(255,255,255,0.03);
-  border-radius: 18px;
-  padding: 18px 18px 14px 18px;
-  margin: 6px 0 18px 0;
-}
-.hero-title{
-  font-size: 34px;
-  font-weight: 900;
-  letter-spacing: -0.5px;
-  margin-bottom: 4px;
-}
-.hero-sub{
-  font-size: 13px;
-  color: rgba(255,255,255,0.70);
-  margin-bottom: 12px;
-}
-.hero-pills{
-  display:flex;
-  flex-wrap:wrap;
-  gap:8px;
-}
-.pill{
-  display:inline-block;
-  padding:6px 12px;
-  border-radius:999px;
-  background: rgba(255,255,255,0.06);
-  border:1px solid rgba(255,255,255,0.10);
-  font-size:12px;
-  color: rgba(255,255,255,0.85);
-}
-</style>
-""", unsafe_allow_html=True)
-
-# Auto refresh 5 minutes (requirement)
-st_autorefresh(interval=300000, key="auto_refresh_5min")
+# import our modules (after page config)
+from src.quant_a import render_quant_a
+from src.quant_b import render_quant_b
+from src.data_loader import clear_cache, get_latest_price
+from src.utils import COLORS, get_paris_time, is_market_open
 
 
-@st.cache_data(ttl=300)
-def cached_fetch_data(ticker: str, period: str, interval: str) -> pd.DataFrame:
-    return fetch_data(ticker, period=period, interval=interval)
+# ============================================================
+# SESSION STATE INITIALIZATION (FIX FOR NAVIGATION BUG)
+# ============================================================
+
+def init_session_state():
+    """Initialize session state for persistent navigation."""
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = "Home"
+    if 'menu_key' not in st.session_state:
+        st.session_state.menu_key = 0
 
 
-def _clean_timeseries(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty:
-        return pd.DataFrame()
-    out = df.copy()
-    out = out.sort_index()
-    out = out[~out.index.duplicated(keep="last")]
-    # garder seulement colonnes utiles si elles existent
-    for col in ["Close", "SMA_Short", "SMA_Long"]:
-        if col in out.columns:
-            out[col] = pd.to_numeric(out[col], errors="coerce")
-    out = out.dropna(subset=["Close"])
-    return out
+def get_page_index(page_name: str) -> int:
+    """Get the index of a page in the menu."""
+    pages = ["Home", "Single Asset", "Portfolio", "Settings"]
+    return pages.index(page_name) if page_name in pages else 0
 
 
-def format_signal(last_row: pd.Series):
-    if pd.isna(last_row.get("SMA_Short")) or pd.isna(last_row.get("SMA_Long")):
-        return ("NEUTRAL", "#9CA3AF", "Not enough data for moving averages.")
-    if last_row["SMA_Short"] > last_row["SMA_Long"]:
-        return ("BUY", "#22C55E", "SMA short above SMA long.")
-    if last_row["SMA_Short"] < last_row["SMA_Long"]:
-        return ("SELL", "#EF4444", "SMA short below SMA long.")
-    return ("NEUTRAL", "#9CA3AF", "SMA short equals SMA long.")
+# ============================================================
+# CUSTOM CSS FOR PROFESSIONAL LOOK
+# ============================================================
+
+def inject_custom_css():
+    """Inject custom CSS for better styling."""
+    st.markdown("""
+    <style>
+    /* main background */
+    .stApp {
+        background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+    }
+    
+    /* sidebar styling */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #1a1a2e 0%, #0f0f1a 100%);
+        border-right: 1px solid rgba(99, 102, 241, 0.2);
+    }
+    
+    /* cards/containers */
+    [data-testid="stExpander"] {
+        background-color: rgba(30, 30, 46, 0.6);
+        border: 1px solid rgba(99, 102, 241, 0.2);
+        border-radius: 10px;
+    }
+    
+    /* metrics styling */
+    [data-testid="stMetricValue"] {
+        font-size: 1.8rem;
+        font-weight: 700;
+    }
+    
+    [data-testid="stMetricDelta"] > div {
+        font-size: 0.9rem;
+    }
+    
+    /* tabs styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: rgba(30, 30, 46, 0.4);
+        border-radius: 10px;
+        padding: 5px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px;
+        padding: 10px 20px;
+        background-color: transparent;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background-color: rgba(99, 102, 241, 0.3);
+    }
+    
+    /* buttons */
+    .stButton > button {
+        background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+    }
+    
+    /* dataframes */
+    [data-testid="stDataFrame"] {
+        border-radius: 10px;
+        overflow: hidden;
+    }
+    
+    /* selectbox */
+    [data-testid="stSelectbox"] > div > div {
+        background-color: rgba(30, 30, 46, 0.6);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        border-radius: 8px;
+    }
+    
+    /* text input */
+    [data-testid="stTextInput"] > div > div > input {
+        background-color: rgba(30, 30, 46, 0.6);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        border-radius: 8px;
+    }
+    
+    /* slider */
+    [data-testid="stSlider"] > div > div > div {
+        background-color: #6366f1;
+    }
+    
+    /* hide streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* custom header */
+    .main-header {
+        background: linear-gradient(90deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+        border: 1px solid rgba(99, 102, 241, 0.2);
+        border-radius: 15px;
+        padding: 20px 30px;
+        margin-bottom: 20px;
+    }
+    
+    .main-header h1 {
+        background: linear-gradient(90deg, #6366f1, #8b5cf6, #a855f7);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 2.5rem;
+        font-weight: 800;
+        margin-bottom: 5px;
+    }
+    
+    .main-header p {
+        color: #94a3b8;
+        font-size: 1rem;
+    }
+    
+    /* status indicator */
+    .status-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+    
+    .status-open {
+        background-color: rgba(16, 185, 129, 0.2);
+        color: #10b981;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    
+    .status-closed {
+        background-color: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+    
+    /* info boxes */
+    .info-box {
+        background-color: rgba(59, 130, 246, 0.1);
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        border-radius: 10px;
+        padding: 15px;
+        margin: 10px 0;
+    }
+    
+    /* divider */
+    hr {
+        border: none;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.3), transparent);
+        margin: 20px 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 
-def plot_quant_a(df: pd.DataFrame, ticker: str) -> go.Figure:
-    fig = go.Figure()
+# ============================================================
+# AUTO-REFRESH (5 MINUTES = 300000 MS)
+# ============================================================
 
-    fig.add_trace(go.Scatter(
-        x=df.index, y=df["Close"],
-        name="Close", mode="lines",
-        connectgaps=False
-    ))
+def setup_auto_refresh():
+    """Setup auto-refresh every 5 minutes."""
+    count = st_autorefresh(interval=300000, limit=None, key="auto_refresh")
+    return count
 
-    if "SMA_Short" in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df["SMA_Short"],
-            name="SMA short", mode="lines",
-            connectgaps=False
-        ))
 
-    if "SMA_Long" in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df["SMA_Long"],
-            name="SMA long", mode="lines",
-            connectgaps=False
-        ))
+# ============================================================
+# HEADER COMPONENT
+# ============================================================
 
-    fig.update_layout(
-        template="plotly_dark",
-        height=520,
-        margin=dict(l=20, r=20, t=40, b=20),
-        legend=dict(orientation="h", y=1.02, x=0),
-        hovermode="x unified",
-    )
-    fig.update_xaxes(title="Time", showspikes=True, spikemode="across", spikesnap="cursor", showgrid=True)
-    fig.update_yaxes(title="Price", showgrid=True)
-    return fig
+def render_header():
+    """Render the main header with status info."""
+    paris_time = get_paris_time()
+    market_status = is_market_open()
+    
+    st.markdown("""
+    <div class="main-header">
+        <h1>📈 Quantitative Finance Dashboard</h1>
+        <p>Real-time market analysis, backtesting strategies, and portfolio optimization</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
+    
+    with col1:
+        status_class = "status-open" if market_status else "status-closed"
+        status_text = "● Market Open" if market_status else "● Market Closed"
+        st.markdown(f'<span class="status-indicator {status_class}">{status_text}</span>', unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"🕐 **Paris:** {paris_time.strftime('%H:%M:%S')}")
+    
+    with col3:
+        st.markdown(f"📅 **Date:** {paris_time.strftime('%Y-%m-%d')}")
+    
+    with col4:
+        st.markdown("🔄 **Auto-refresh:** 5 min")
 
-def render_hero(title: str, subtitle: str, pills: list[str]):
-    pills_html = "".join([f'<span class="pill">{p}</span>' for p in pills])
 
-    st.markdown(
-        f"""
-        <div class="hero">
-            <div class="hero-title">{title}</div>
-            <div class="hero-sub">{subtitle}</div>
-            <div class="hero-pills">{pills_html}</div>
+# ============================================================
+# SIDEBAR WITH FIXED NAVIGATION
+# ============================================================
+
+def render_sidebar():
+    """Render sidebar with navigation and info."""
+    with st.sidebar:
+        st.markdown("""
+        <div style="text-align: center; padding: 20px 0;">
+            <h2 style="background: linear-gradient(90deg, #6366f1, #8b5cf6); 
+                       -webkit-background-clip: text; 
+                       -webkit-text-fill-color: transparent;
+                       font-size: 1.5rem;">
+                🎯 Quant Platform
+            </h2>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-
-
-# Sidebar navigation
-with st.sidebar:
-    st.title("Navigation")
-    page = st.radio(
-        "Go to",
-        ["Quant A (single asset)", "Quant B (portfolio)", "About"],
-        index=0
-    )
-    st.divider()
-    if st.button("Force refresh now", help="Clears cache and reloads the app"):
-        st.cache_data.clear()
-        st.rerun()
-
-st.title("Quant Research Dashboard")
-st.caption("Live data via public API. Auto refresh every 5 minutes. Two modules integrated.")
-
-
-# -----------------------
-# Quant A
-# -----------------------
-if page == "Quant A (single asset)":
-    render_hero(
-    title="Quant A - Single Asset Strategy",
-    subtitle="Moving-average crossover strategy with real-time risk metrics",
-    pills=[
-        "Signal: SMA crossover",
-        "Metrics: Sharpe, Drawdown",
-        "Data: yfinance",
-        "Mode: Real-time"
-    ]
-)
-
-    # Settings card
-    with st.container(border=True):
-        st.markdown("**Settings**")
-        c1, c2, c3, c4, c5 = st.columns([1.2, 1, 1, 1, 1])
-
-        with c1:
-            ticker = st.text_input(
-                "Symbol",
-                value="AAPL",
-                help="Example: AAPL, MSFT, BTC-USD, EURUSD=X"
-            ).strip().upper()
-
-        with c2:
-            short_window = st.slider(
-                "SMA short",
-                5, 80, 20,
-                help="Short moving average window"
-            )
-
-        with c3:
-            long_window = st.slider(
-                "SMA long",
-                10, 200, 83,
-                help="Long moving average window"
-            )
-
-        with c4:
-            period = st.selectbox(
-                "Period",
-                ["1d", "5d", "1mo", "3mo", "6mo", "1y"],
-                index=1,
-                help="Historical range to download"
-            )
-
-        with c5:
-            interval = st.selectbox(
-                "Interval",
-                ["1m", "2m", "5m", "15m", "30m", "60m", "1d"],
-                index=2,
-                help="Sampling frequency"
-            )
-
-        # Guard rails for SMA windows
-        if short_window >= long_window:
-            st.warning("SMA short should be < SMA long. Auto-adjusting long window.")
-            long_window = max(long_window, short_window + 1)
-
-    # Fetch + spinner
-    with st.spinner("Fetching market data…"):
-        df = cached_fetch_data(ticker, period=period, interval=interval)
-
-    if df is None or df.empty:
-        st.error("No data retrieved. Try another symbol or a different period/interval.")
-        st.stop()
-
-    # Strategy
-    analyzer = QuantAAnalyzer(df)
-    df_strat = analyzer.apply_strategy(short_window=short_window, long_window=long_window)
-
-    if df_strat is None or df_strat.empty:
-        st.error("Strategy output is empty. Try smaller windows or another symbol.")
-        st.stop()
-
-    last_row = df_strat.iloc[-1]
-    last_price = float(last_row["Close"]) if "Close" in df_strat.columns else 0.0
-    metrics = analyzer.get_metrics()
-    signal_text, signal_color, signal_help = format_signal(last_row)
-
-    # KPIs card
-    with st.container(border=True):
-        st.markdown("**Key metrics**")
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Last price", f"{last_price:.2f}")
-        k2.markdown(
-            f"""
-            <div style="padding:12px;border-radius:16px;border:1px solid rgba(255,255,255,0.10);
-                        background:rgba(255,255,255,0.04);">
-              <div style="font-size:12px;color:rgba(229,231,235,0.70);">Signal</div>
-              <div style="font-size:22px;font-weight:900;color:{signal_color};">{signal_text}</div>
-              <div style="font-size:12px;color:rgba(229,231,235,0.70);">{signal_help}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
+        """, unsafe_allow_html=True)
+        
+        # get current page index for default_index
+        current_index = get_page_index(st.session_state.current_page)
+        
+        # navigation menu with persistent selection
+        selected = option_menu(
+            menu_title=None,
+            options=["Home", "Single Asset", "Portfolio", "Settings"],
+            icons=["house", "graph-up", "pie-chart", "gear"],
+            menu_icon="cast",
+            default_index=current_index,
+            key=f"nav_menu_{st.session_state.menu_key}",
+            styles={
+                "container": {"padding": "5px", "background-color": "transparent"},
+                "icon": {"color": "#8b5cf6", "font-size": "18px"},
+                "nav-link": {
+                    "font-size": "14px",
+                    "text-align": "left",
+                    "margin": "5px 0",
+                    "padding": "10px 15px",
+                    "border-radius": "8px",
+                    "--hover-color": "rgba(99, 102, 241, 0.2)",
+                },
+                "nav-link-selected": {
+                    "background-color": "rgba(99, 102, 241, 0.3)",
+                    "font-weight": "600",
+                },
+            }
         )
-        k3.metric("Max drawdown", f"{metrics.get('Max Drawdown', 0.0):.2%}")
-        k4.metric("Sharpe (rf=0)", f"{metrics.get('Sharpe Ratio', 0.0):.2f}")
+        
+        # update session state when menu selection changes
+        if selected != st.session_state.current_page:
+            st.session_state.current_page = selected
+        
+        st.markdown("---")
+        
+        # quick ticker lookup
+        st.markdown("### 🔍 Quick Lookup")
+        quick_ticker = st.text_input("Ticker", value="AAPL", key="quick_lookup")
+        
+        if quick_ticker:
+            price_data = get_latest_price(quick_ticker)
+            if price_data:
+                delta_color = "normal" if price_data['is_positive'] else "inverse"
+                st.metric(
+                    label=quick_ticker.upper(),
+                    value=f"${price_data['price']:.2f}",
+                    delta=f"{price_data['change_pct']:.2f}%",
+                    delta_color=delta_color
+                )
+            else:
+                st.warning("Ticker not found")
+        
+        st.markdown("---")
+        
+        # about section
+        with st.expander("ℹ️ About"):
+            st.markdown("""
+            **Quant Dashboard v1.0**
+            
+            A professional quantitative finance platform for:
+            - Single asset analysis & backtesting
+            - Multi-asset portfolio optimization
+            - ML-based price predictions
+            
+            Built with Streamlit, yfinance, and love.
+            
+            ---
+            
+            **Team:** Quant Research
+            
+            **Data:** Yahoo Finance API
+            
+            **Refresh:** Every 5 minutes
+            """)
+        
+        # cache control
+        if st.button("🔄 Force Refresh Data"):
+            clear_cache()
+            st.success("Cache cleared!")
+            st.rerun()
+        
+        return selected
 
-    # Chart card (matplotlib version kept)
-    with st.container(border=True):
-        st.markdown("**Chart**")
-        df_plot = _clean_timeseries(df_strat)
-        st.plotly_chart(plot_quant_a(df_plot, ticker), use_container_width=True)
+
+# ============================================================
+# HOME PAGE
+# ============================================================
+
+def render_home():
+    """Render the home page with overview."""
+    st.markdown("## 🏠 Welcome to Quant Dashboard")
+    
+    st.markdown("""
+    <div class="info-box">
+        <strong>📊 What is this?</strong><br>
+        A professional-grade quantitative finance platform for analyzing individual assets 
+        and building optimized portfolios. Features include backtesting, ML predictions, 
+        and real-time data.
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        ### 📈 Single Asset Analysis (Quant A)
+        
+        Analyze individual assets with:
+        - **8 Trading Strategies**: SMA, EMA, RSI, Bollinger, MACD, Momentum, Mean Reversion, Buy & Hold
+        - **Backtesting**: Test strategies on historical data
+        - **Performance Metrics**: Sharpe, Sortino, Max Drawdown, VaR
+        - **ML Predictions**: Prophet, Linear Regression, Momentum forecasts
+        - **Interactive Charts**: Candlesticks, signals, indicators, drawdown
+        
+        Perfect for deep-diving into a single stock, crypto, or forex pair.
+        """)
+        
+        if st.button("Go to Single Asset →", key="goto_quant_a"):
+            st.session_state.current_page = "Single Asset"
+            st.session_state.menu_key += 1
+            st.rerun()
+    
+    with col2:
+        st.markdown("""
+        ### 📊 Portfolio Analysis (Quant B)
+        
+        Build and analyze portfolios with:
+        - **7 Allocation Methods**: Equal Weight, Min Variance, Risk Parity, Max Sharpe, HRP
+        - **Rebalancing Options**: None, Daily, Weekly, Monthly
+        - **Risk Analysis**: Correlation matrix, diversification ratio
+        - **Efficient Frontier**: Visualize risk-return tradeoff
+        - **Risk Contribution**: See how each asset impacts portfolio risk
+        
+        Perfect for building diversified portfolios with multiple assets.
+        """)
+        
+        if st.button("Go to Portfolio →", key="goto_quant_b"):
+            st.session_state.current_page = "Portfolio"
+            st.session_state.menu_key += 1
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # market overview
+    st.markdown("### 🌍 Market Overview")
+    
+    market_tickers = ["^GSPC", "^DJI", "^IXIC", "BTC-USD", "EURUSD=X", "GC=F"]
+    market_names = ["S&P 500", "Dow Jones", "NASDAQ", "Bitcoin", "EUR/USD", "Gold"]
+    
+    cols = st.columns(6)
+    
+    for i, (ticker, name) in enumerate(zip(market_tickers, market_names)):
+        with cols[i]:
+            price_data = get_latest_price(ticker)
+            if price_data:
+                st.metric(
+                    label=name,
+                    value=f"${price_data['price']:,.2f}" if price_data['price'] > 100 else f"${price_data['price']:.4f}",
+                    delta=f"{price_data['change_pct']:.2f}%",
+                    delta_color="normal" if price_data['is_positive'] else "inverse"
+                )
+            else:
+                st.metric(label=name, value="N/A", delta="--")
+    
+    st.markdown("---")
+    
+    # features grid
+    st.markdown("### ✨ Platform Features")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown("""
+        **🔄 Real-Time Data**
+        
+        Auto-refreshes every 5 minutes with live market data from Yahoo Finance.
+        """)
+    
+    with col2:
+        st.markdown("""
+        **📊 8 Strategies**
+        
+        From simple moving averages to advanced momentum and mean-reversion strategies.
+        """)
+    
+    with col3:
+        st.markdown("""
+        **🤖 ML Predictions**
+        
+        Forecast prices using Prophet, Linear Regression, and custom models.
+        """)
+    
+    with col4:
+        st.markdown("""
+        **📈 Portfolio Optimization**
+        
+        Risk parity, min variance, max Sharpe, and more allocation methods.
+        """)
 
 
-    # Data
-    with st.expander("Show data (last 300 rows)"):
-        st.dataframe(df_strat.tail(300), use_container_width=True)
+# ============================================================
+# SETTINGS PAGE
+# ============================================================
+
+def render_settings():
+    """Render settings page."""
+    st.markdown("## ⚙️ Settings")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 🎨 Display Settings")
+        
+        st.checkbox("Dark mode", value=True, disabled=True, help="Dark mode is always on")
+        st.checkbox("Show signals on charts", value=True, key="show_signals")
+        st.checkbox("Show confidence intervals", value=True, key="show_ci")
+        
+        st.markdown("### 📊 Default Parameters")
+        
+        st.selectbox(
+            "Default Period",
+            ["1d", "5d", "1mo", "3mo", "6mo", "1y"],
+            index=3,
+            key="default_period"
+        )
+        
+        st.selectbox(
+            "Default Interval",
+            ["1m", "5m", "15m", "1h", "1d"],
+            index=4,
+            key="default_interval"
+        )
+    
+    with col2:
+        st.markdown("### 🔧 Cache & Data")
+        
+        st.info("Data is cached for 5 minutes to reduce API calls and improve performance.")
+        
+        if st.button("🗑️ Clear All Cache", type="primary"):
+            clear_cache()
+            st.success("✅ All cached data cleared!")
+        
+        st.markdown("### 📈 Risk Parameters")
+        
+        st.number_input(
+            "Risk-free Rate (%)",
+            min_value=0.0,
+            max_value=10.0,
+            value=4.0,
+            step=0.1,
+            key="risk_free_rate",
+            help="Annual risk-free rate for Sharpe ratio calculation"
+        )
+        
+        st.number_input(
+            "VaR Confidence Level (%)",
+            min_value=90.0,
+            max_value=99.9,
+            value=95.0,
+            step=0.5,
+            key="var_confidence",
+            help="Confidence level for Value at Risk"
+        )
+    
+    st.markdown("---")
+    
+    st.markdown("### 📝 System Information")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+        **Version:** 1.0.0
+        
+        **Python:** 3.10+
+        
+        **Framework:** Streamlit
+        """)
+    
+    with col2:
+        st.markdown("""
+        **Data Source:** Yahoo Finance
+        
+        **Refresh Rate:** 5 minutes
+        
+        **Cache TTL:** 300 seconds
+        """)
+    
+    with col3:
+        st.markdown("""
+        **Timezone:** Europe/Paris
+        
+        **Market Hours:** 9:30-16:00 ET
+        
+        **Trading Days:** 252/year
+        """)
 
 
-# -----------------------
-# Quant B
-# -----------------------
-elif page == "Quant B (portfolio)":
-    render_hero(
-    title="Quant B - Multi-Asset Portfolio",
-    subtitle="Portfolio simulation, diversification & correlation analysis",
-    pills=[
-        "≥ 3 assets",
-        "Metrics: Sharpe, DD, Corr",
-        "Weights: configurable",
-        "Focus: Risk & Diversification"
-    ]
-)
-    render_quant_b()
+# ============================================================
+# MAIN APP
+# ============================================================
 
-
-# =============================
-# Page: About (premium clickable sections) — FIXED + better layout
-# =============================
-else:
-    from streamlit_option_menu import option_menu
-
-    # ---- Premium CSS for clickable cards + center layout fix
+def main():
+    """Main application entry point."""
+    # initialize session state first
+    init_session_state()
+    
+    # inject custom CSS
+    inject_custom_css()
+    
+    # setup auto-refresh
+    refresh_count = setup_auto_refresh()
+    
+    # render sidebar and get navigation selection
+    selected = render_sidebar()
+    
+    # render header
+    render_header()
+    
+    st.markdown("---")
+    
+    # render selected page based on session state
+    current_page = st.session_state.current_page
+    
+    if current_page == "Home":
+        render_home()
+    elif current_page == "Single Asset":
+        render_quant_a(show_header=True)
+    elif current_page == "Portfolio":
+        render_quant_b(show_header=True)
+    elif current_page == "Settings":
+        render_settings()
+    
+    # footer
+    st.markdown("---")
     st.markdown(
         """
-        <style>
-          /* Fix: prevent weird right shift by controlling main container width */
-          .block-container {
-            max-width: 1200px !important;
-            padding-top: 2.2rem !important;
-          }
-
-          .about-grid {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 14px;
-            margin-top: 14px;
-            margin-bottom: 14px;
-          }
-          @media (max-width: 1100px) {
-            .about-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-          }
-          @media (max-width: 700px) {
-            .about-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
-          }
-
-          .about-card {
-            position: relative;
-            border-radius: 18px;
-            overflow: hidden;
-            border: 1px solid rgba(255,255,255,0.08);
-            background: rgba(255,255,255,0.04);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-            padding: 16px 16px 14px 16px;
-            min-height: 128px;
-            transition: transform 120ms ease, border 120ms ease;
-          }
-          .about-card:hover {
-            transform: translateY(-2px);
-            border: 1px solid rgba(255,255,255,0.16);
-          }
-
-          .bg-vision::before,
-          .bg-arch::before,
-          .bg-metrics::before,
-          .bg-ux::before,
-          .bg-ops::before,
-          .bg-future::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            opacity: 0.85;
-          }
-
-          /* Subtle “image-like” gradients (no external files) */
-          .bg-vision::before  { background: radial-gradient(circle at 20% 20%, rgba(46,91,255,0.55), transparent 50%),
-                                         radial-gradient(circle at 80% 70%, rgba(0,220,255,0.30), transparent 50%),
-                                         linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)); }
-          .bg-arch::before    { background: radial-gradient(circle at 30% 30%, rgba(0,255,170,0.40), transparent 55%),
-                                         radial-gradient(circle at 80% 70%, rgba(46,91,255,0.35), transparent 55%),
-                                         linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)); }
-          .bg-metrics::before { background: radial-gradient(circle at 25% 20%, rgba(255,184,0,0.40), transparent 55%),
-                                         radial-gradient(circle at 80% 70%, rgba(46,91,255,0.25), transparent 55%),
-                                         linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)); }
-          .bg-ux::before      { background: radial-gradient(circle at 25% 30%, rgba(255,0,200,0.28), transparent 55%),
-                                         radial-gradient(circle at 80% 70%, rgba(0,220,255,0.22), transparent 55%),
-                                         linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)); }
-          .bg-ops::before     { background: radial-gradient(circle at 25% 30%, rgba(180,255,0,0.20), transparent 55%),
-                                         radial-gradient(circle at 80% 70%, rgba(46,91,255,0.25), transparent 55%),
-                                         linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)); }
-          .bg-future::before  { background: radial-gradient(circle at 30% 25%, rgba(46,91,255,0.45), transparent 55%),
-                                         radial-gradient(circle at 75% 70%, rgba(255,70,70,0.22), transparent 55%),
-                                         linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02)); }
-
-          .about-card * { position: relative; z-index: 2; }
-          .about-title { font-size: 15px; font-weight: 900; color: #E5E7EB; margin-bottom: 6px; }
-          .about-desc  { font-size: 12px; color: rgba(229,231,235,0.78); line-height: 1.35; }
-          .about-chip  { display:inline-block; margin-top:10px; font-size:11px; padding:6px 10px;
-                         border-radius:999px; border: 1px solid rgba(255,255,255,0.10);
-                         background: rgba(0,0,0,0.18); color: rgba(229,231,235,0.90); }
-          .softline { height:1px; width:100%; background: rgba(255,255,255,0.08); margin: 14px 0; }
-        </style>
+        <div style="text-align: center; color: #64748b; font-size: 0.85rem; padding: 20px;">
+            <p>Quant Dashboard © 2024 | Data provided by Yahoo Finance | Auto-refreshes every 5 minutes</p>
+            <p>Built with ❤️ using Streamlit, Plotly, and Python</p>
+        </div>
         """,
         unsafe_allow_html=True
     )
 
-    # -----------------------------
-    # Small helper: custom “badges”
-    # -----------------------------
-    def soft_badge(text: str) -> None:
-        st.markdown(
-            f"""
-            <div style="
-                display:inline-block;
-                padding:6px 14px;
-                border-radius:999px;
-                background:rgba(255,255,255,0.08);
-                border:1px solid rgba(255,255,255,0.15);
-                font-size:12px;
-                color:#E5E7EB;
-                margin-right:8px;
-                margin-bottom:6px;
-            ">
-                {text}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
 
-    # -----------------------------
-    # Header
-    # -----------------------------
-    st.header("About")
-    st.write("A clean, modular quantitative research dashboard built for real-time exploration and risk-aware decisions.")
-
-    # Badges row (fixed: NOT inside any column by mistake)
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        soft_badge("API: yfinance")
-    with c2:
-        soft_badge("Auto-refresh: 5 min")
-    with c3:
-        soft_badge("UI: Streamlit + Plotly")
-    with c4:
-        soft_badge("Modules: Quant A & Quant B")
-
-    st.markdown('<div class="softline"></div>', unsafe_allow_html=True)
-
-    # -----------------------------
-    # Clickable sections (menu)
-    # -----------------------------
-    selected = option_menu(
-        menu_title=None,
-        options=["Vision", "Architecture", "Metrics", "UX", "Ops & Run", "Future Work"],
-        icons=["bullseye", "diagram-3", "bar-chart-line", "magic", "gear", "rocket"],
-        orientation="horizontal",
-        styles={
-            "container": {"padding": "0!important", "background-color": "transparent"},
-            "icon": {"color": "#E5E7EB", "font-size": "16px"},
-            "nav-link": {
-                "font-size": "13px",
-                "text-align": "center",
-                "margin": "0px 6px",
-                "padding": "8px 10px",
-                "border-radius": "999px",
-                "color": "#E5E7EB",
-                "background-color": "rgba(255,255,255,0.05)",
-                "border": "1px solid rgba(255,255,255,0.08)",
-            },
-            "nav-link-selected": {
-                "background-color": "rgba(46,91,255,0.35)",
-                "border": "1px solid rgba(46,91,255,0.55)",
-                "color": "#FFFFFF",
-            },
-        }
-    )
-
-    # -----------------------------
-    # “Overview cards” (visual)
-    # -----------------------------
-    st.markdown(
-        """
-        <div class="about-grid">
-          <div class="about-card bg-vision">
-            <div class="about-title">Vision</div>
-            <div class="about-desc">Why the dashboard exists, what problem it solves.</div>
-            <div class="about-chip">Research mindset</div>
-          </div>
-          <div class="about-card bg-arch">
-            <div class="about-title">Architecture</div>
-            <div class="about-desc">Clean separation: data → analytics → UI.</div>
-            <div class="about-chip">Maintainable</div>
-          </div>
-          <div class="about-card bg-metrics">
-            <div class="about-title">Metrics</div>
-            <div class="about-desc">Sharpe, drawdown, diversification, correlation explained.</div>
-            <div class="about-chip">Interpretability</div>
-          </div>
-          <div class="about-card bg-ux">
-            <div class="about-title">UX</div>
-            <div class="about-desc">Interactive charts, tooltips, clean settings.</div>
-            <div class="about-chip">Client-friendly</div>
-          </div>
-          <div class="about-card bg-ops">
-            <div class="about-title">Ops & Run</div>
-            <div class="about-desc">How to run locally + deployment checklist.</div>
-            <div class="about-chip">Production-ish</div>
-          </div>
-          <div class="about-card bg-future">
-            <div class="about-title">Future Work</div>
-            <div class="about-desc">Extensions that turn it into a full research platform.</div>
-            <div class="about-chip">Roadmap</div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown('<div class="softline"></div>', unsafe_allow_html=True)
-
-    # -----------------------------
-    # Section content (clean + useful)
-    # -----------------------------
-    if selected == "Vision":
-        st.subheader("🎯 Vision")
-        st.markdown(
-            """
-**Quant Research Dashboard** is a lightweight research terminal.
-
-It enables you to:
-- Explore time series in real-time (public API data)
-- Prototype strategies quickly (Quant A)
-- Understand portfolio risk & diversification (Quant B)
-- Keep the UI simple while providing research-grade metrics
-
-The goal is **clarity + robustness**, not black-box signals.
-            """
-        )
-
-    elif selected == "Architecture":
-        st.subheader("🏗️ Architecture")
-        st.markdown(
-            """
-**Design principle:** separation of concerns.
-
-- **Data layer**: `src/data_loader.py` fetches and cleans market data.
-- **Quant A**: single-asset strategy + metrics (Sharpe, drawdown).
-- **Quant B**: portfolio simulation (≥3 assets) + risk/diversification metrics.
-- **UI**: Streamlit for layout + Plotly for interactive charts.
-
-This structure supports clean Git collaboration (branches + pull requests).
-            """
-        )
-        st.info("Each module is isolated so teammates can work independently with minimal merge conflicts.")
-
-    elif selected == "Metrics":
-        st.subheader("📊 Metrics")
-        st.markdown("Key metrics are explained below for interpretability:")
-
-        with st.expander("Sharpe Ratio (rf = 0)"):
-            st.write("Risk-adjusted performance. Higher is better. Negative means underperformance relative to volatility.")
-
-        with st.expander("Max Drawdown"):
-            st.write("Worst peak-to-trough decline of the equity curve. Important downside risk measure.")
-
-        with st.expander("Correlation Matrix (Quant B)"):
-            st.write("Shows how assets move together. Lower average correlation generally improves diversification.")
-
-        with st.expander("Diversification Ratio (Quant B)"):
-            st.write("Weighted average asset volatility divided by portfolio volatility. Higher is better diversification.")
-
-        with st.expander("Effective Number of Bets (Quant B)"):
-            st.write("1 / sum(w²). Higher = more evenly distributed weights (less concentration).")
-
-    elif selected == "UX":
-        st.subheader("✨ UX & Product choices")
-        st.markdown(
-            """
-Decisions that improve user experience:
-
-- **Dark theme** to reduce eye fatigue
-- **Plotly charts** for hover, zoom and precise inspection
-- **Auto-refresh every 5 minutes** + manual override
-- **Safe handling of API constraints** (yfinance period/interval limitations)
-- **Settings grouped** to keep the main view readable
-            """
-        )
-        st.success("The dashboard behaves like a product: robust, interactive and easy to understand.")
-
-    elif selected == "Ops & Run":
-        st.subheader("⚙️ Ops & Run")
-
-        st.markdown("### Run locally")
-        st.code(
-            """python -m venv .venv
-# Windows:
-.\\.venv\\Scripts\\Activate.ps1
-# macOS/Linux:
-# source .venv/bin/activate
-
-pip install -r requirements.txt
-streamlit run app.py
-""",
-            language="bash",
-        )
-
-        st.markdown("### Deployment checklist (Linux)")
-        st.markdown(
-            """
-- Run the app 24/7 using a service manager (systemd recommended)
-- Add a cron job for daily report generation (`scripts/daily_report.py`)
-- Write a README: setup, usage, screenshots, and troubleshooting
-            """
-        )
-        st.warning("If you want, I can give you the exact systemd + cron files ready to copy/paste.")
-
-    else:  # Future Work
-        st.subheader("🚀 Future Work")
-        st.markdown(
-            """
-Possible extensions (research-grade improvements):
-
-- Transaction costs + slippage for realistic backtests
-- Volatility targeting / risk parity variants
-- Efficient frontier (Markowitz) visualization
-- Exportable reports (CSV/HTML/PDF) from the UI
-- Multi-source data (AlphaVantage / FRED / ECB) + caching
-            """
-        )
-        st.info("Mentioning these shows maturity and improves the perceived quality of the project.")
+if __name__ == "__main__":
+    main()
